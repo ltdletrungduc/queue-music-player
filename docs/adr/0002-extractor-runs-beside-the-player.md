@@ -1,21 +1,35 @@
 # The Extractor runs beside the Player, on a residential connection
 
-Stream URLs are bound to the IP that resolved them: a URL resolved elsewhere
-returns 403 to the Player. And since 2025, resolving from a datacenter IP —
-any VPS or cloud host — triggers bot verification after roughly 5–10 requests,
-with no flag or option that avoids it.
+YouTube serves audio over SABR: the player response carries a single
+server-side adaptive streaming endpoint and no per-format URL. Segments are
+requested by POST and framed in a protobuf-based protocol, so no media element
+can fetch them. Every InnerTube client behaves this way, and the extraction
+libraries that relied on plain URLs fail outright.
 
-Both problems disappear if the Extractor runs on the same machine and public IP
-as the Player, which is a laptop on a home connection. The browser can then
-point an `<audio>` element straight at the resolved URL: same IP, so no 403, and
-cross-origin media playback needs no CORS headers. Nothing is proxied through a
-server, so there is no bandwidth cost and no hosting AUP to violate.
+The Extractor therefore speaks SABR itself and relays the resulting audio to the
+Player as an ordinary HTTP response. It runs on the same machine and public IP
+as the Player, which is a laptop on a home connection, because resolving from a
+datacenter IP triggers bot verification after roughly 5-10 requests, with no
+option that avoids it.
 
-Client-side extraction was ruled out first: `googlevideo.com` only permits the
-`youtube.com` origin, so a browser cannot resolve a Stream by itself. A server
-process is unavoidable — the decision is only *whose* IP it uses.
+Client-side extraction was ruled out first: the media host only permits the
+YouTube origin, so a browser cannot resolve a stream by itself. A server process
+is unavoidable; the decision is only whose IP it uses.
 
-Consequence: the Extractor's location is configuration, not architecture. It sits
-behind an HTTP boundary even while running locally, so moving it to a hosted
-server later is a URL change. Doing so reintroduces both problems above and would
-require a residential proxy subscription to solve them.
+The Extractor must evaluate YouTube's player script to decipher the streaming
+endpoint — passing it undeciphered returns 403, and the library ships no
+interpreter. That script is untrusted remote code and is evaluated in an
+isolated VM context with a timeout, never in the server's own scope.
+
+Consequence: audio bytes pass through the Extractor. While the Extractor and the
+Player share a machine this is a loopback copy and costs nothing. Moving the
+Extractor to a hosted server later would make it a real bandwidth cost, on top
+of reintroducing the datacenter IP problem — so that move is more expensive than
+it first appears, not less.
+
+## Superseded reasoning
+
+An earlier revision of this record claimed the Player's browser could point an
+audio element straight at a resolved URL, so that nothing was ever proxied. A
+spike disproved it: plain URLs no longer exist. The residential-IP requirement
+survived that spike unchanged; the no-proxying claim did not.
