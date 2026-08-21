@@ -1,6 +1,6 @@
 # Queue Music Player
 
-A shared playlist for a room of friends. One device plays the audio out loud
+A shared music queue for a room of friends. One device plays the audio out loud
 through a speaker; everyone else uses their phone to shape what plays next.
 Nobody hears music through their own phone.
 
@@ -9,7 +9,7 @@ Nobody hears music through their own phone.
 ### The room
 
 **Room**:
-The single shared space that holds one Playlist, one Transport, and the
+The single shared space that holds one Queue, one Transport, and the
 Controllers currently connected. There is exactly one for now, addressed as
 `main`.
 _Avoid_: Session, channel, party, lobby
@@ -26,7 +26,7 @@ at a time.
 _Avoid_: Host, DJ, master, sink, output device
 
 **Controller**:
-A person connected to the Room from their own device, who can shape the Playlist
+A person connected to the Room from their own device, who can shape the Queue
 and drive the Transport but receives no audio. Controllers are not accounts; they
 do not persist beyond the browser that created them.
 _Avoid_: User, listener, member, guest, remote
@@ -38,29 +38,37 @@ _Avoid_: Username, handle, display name
 
 ### What plays
 
+**Queue**:
+The ordered list of Tracks waiting to play tonight. Shared and editable by every
+Controller, and *consumed*: a Track leaves the Queue when it starts playing.
+_Avoid_: Playlist, tracklist, up next
+
+**Now Playing**:
+The single Track currently sounding, held in its own slot outside the Queue. It
+cannot be removed or reordered — only skipped — because it is no longer part of
+any list.
+_Avoid_: Current track, head, active track
+
+**History**:
+The Tracks that have already played, most recent first. Previous draws from it;
+nothing else does.
+_Avoid_: Recently played, log, past
+
 **Playlist**:
-The durable, ordered list of Tracks in the Room. Tracks are *not* consumed when
-played; they stay in place and the Cursor moves past them.
-_Avoid_: Queue, tracklist
+A saved, durable collection of Tracks belonging to one person. Loading a Playlist
+*copies* its Tracks into the Queue; the two are independent from that moment on,
+so nothing that happens tonight can change a saved Playlist.
+_Avoid_: Album, collection, saved queue, preset
 
 **Track**:
-One entry in the Playlist: a reference to a piece of audio at a Source, plus who
-added it and where it sits in the order.
+One entry in a Queue or a Playlist: a reference to a piece of audio at a Source,
+plus who added it and where it sits in the order.
 _Avoid_: Song, item, entry, media
 
-**Cursor**:
-The position in the Playlist that is currently playing or paused. "Next" and
-"Previous" move the Cursor; they never remove a Track.
-_Avoid_: Index, pointer, head, now-playing pointer
-
-**Shuffle Order**:
-An alternative traversal order over the Playlist, applied as a view. Turning
-Shuffle off restores the Playlist's own order, which was never altered.
-_Avoid_: Randomise, mix
-
 **Transport**:
-The Room's playback state — which Track, playing or paused, and how far in. The
-Player owns it and reports it; Controllers request changes to it and display it.
+The Room's playback state — what is in Now Playing, whether it is playing or
+paused, and how far in. The Player owns it and reports it; Controllers request
+changes to it and display it.
 _Avoid_: Player state, playback state, controls
 
 ### Where audio comes from
@@ -81,6 +89,7 @@ re-resolved; a Track outlives every Stream made from it.
 _Avoid_: Link, media URL, file
 
 **Extractor**:
-The service that resolves Tracks into Streams and relays the audio bytes to the
-Player. It is the only part of the system that talks to a Source directly.
+The service that resolves Tracks into Streams for the Player. It is the only part
+of the system that talks to a Source directly; audio itself never passes through
+it.
 _Avoid_: Proxy, resolver, backend, API
