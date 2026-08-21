@@ -72,6 +72,12 @@
 
       <div class="mt-3 flex items-center gap-2">
         <button
+          onclick={() => room.previous(track.id)}
+          class="flex-1 rounded-lg bg-neutral-800 px-4 py-2.5 text-sm font-medium"
+        >
+          Previous
+        </button>
+        <button
           onclick={() => (room.transport.isPlaying ? room.pause() : room.resume())}
           class="flex-1 rounded-lg bg-neutral-100 px-4 py-2.5 text-sm font-medium text-neutral-900"
         >
@@ -155,6 +161,21 @@
           <span class="shrink-0 text-xs tabular-nums text-neutral-500">
             {asMinutesAndSeconds(track.song.durationSeconds)}
           </span>
+        </li>
+      {/each}
+    </ul>
+  {/if}
+
+  {#if room.history.length > 0}
+    <h2 class="mt-6 mb-2 text-xs uppercase tracking-wider text-neutral-500">Already played</h2>
+    <ul class="flex flex-col gap-1">
+      {#each room.history as track (track.id)}
+        <li class="flex items-center gap-3 rounded-lg px-2 py-1.5 text-neutral-500">
+          <img src={track.song.artworkUrl} alt="" width="40" height="30" class="h-8 w-10 shrink-0 rounded object-cover opacity-50" />
+          <div class="min-w-0 flex-1">
+            <p class="truncate text-xs">{track.song.title}</p>
+            <p class="truncate text-[0.6875rem] text-neutral-600">added by {track.addedByNickname}</p>
+          </div>
         </li>
       {/each}
     </ul>

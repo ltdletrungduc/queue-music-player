@@ -86,7 +86,8 @@ export function innertubeLookup(youtube: Innertube): SongLookup {
  */
 function endWhenTheAudioRunsOut(
   source: ReadableStream<Uint8Array>,
-  expectedBytes: number | undefined
+  expectedBytes: number | undefined,
+  abortStream: () => void
 ): ReadableStream<Uint8Array> {
   const reader = source.getReader();
   let delivered = 0;
@@ -96,7 +97,11 @@ function endWhenTheAudioRunsOut(
     if (finished) return;
     finished = true;
     controller.close();
-    // SABR is still mid-retry and will reject; nobody is waiting on it any more.
+    // SABR must be told to stop through its own abort, not by cancelling the
+    // reader underneath it: it keeps retrying either way, and on giving up it
+    // closes a stream it does not know is already closed, which throws out of a
+    // timer and takes the process with it.
+    abortStream();
     void reader.cancel().catch(() => {});
   };
 
@@ -126,6 +131,7 @@ function endWhenTheAudioRunsOut(
 
     cancel(reason) {
       finished = true;
+      abortStream();
       void reader.cancel(reason).catch(() => {});
     }
   });
@@ -189,7 +195,9 @@ export function innertubeStream(youtube: Innertube): StreamLookup {
     });
 
     return {
-      body: endWhenTheAudioRunsOut(audioStream, selectedFormats?.audioFormat?.contentLength),
+      body: endWhenTheAudioRunsOut(audioStream, selectedFormats?.audioFormat?.contentLength, () =>
+        sabr.abort()
+      ),
       contentType: selectedFormats?.audioFormat?.mimeType ?? 'audio/webm'
     };
   };

@@ -10,6 +10,7 @@ export type Command =
   | { type: 'transport/paused'; nickname: string }
   | { type: 'transport/resumed'; nickname: string }
   | { type: 'transport/skipped'; trackId: string; nickname: string }
+  | { type: 'transport/previous'; trackId: string; nickname: string }
   | { type: 'transport/volume'; volume: number; nickname: string }
   | { type: 'player/position'; trackId: string; positionSeconds: number };
 

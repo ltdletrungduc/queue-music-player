@@ -127,12 +127,36 @@ io.on('connection', (socket) => {
     apply(room.dispatch({ type: 'transport/skipped', trackId, nickname }));
   });
 
+  socket.on('transport/previous', (trackId: unknown) => {
+    if (typeof trackId !== 'string') return;
+    apply(room.dispatch({ type: 'transport/previous', trackId, nickname }));
+  });
+
   socket.on('transport/volume', (volume: unknown) => {
     if (typeof volume !== 'number' || Number.isNaN(volume)) return;
     apply(room.dispatch({ type: 'transport/volume', volume, nickname }));
   });
 
   socket.on('disconnect', () => apply(room.dispatch({ type: 'controller/disconnected', controllerId })));
+});
+
+/**
+ * SABR can close a stream it has already closed, throwing from one of its own
+ * timers where no await of ours can catch it. Aborting the stream properly stops
+ * this happening, but the library is not ours and one Song must not end the
+ * party, so that one error is survivable.
+ *
+ * Deliberately narrow: anything else still brings the process down, because a
+ * server carrying on in an unknown state is worse than one that restarts.
+ */
+const isSabrClosingATwiceClosedStream = (error: unknown): boolean =>
+  error instanceof Error &&
+  (error as NodeJS.ErrnoException).code === 'ERR_INVALID_STATE' &&
+  (error.stack?.includes('SabrStream') ?? false);
+
+process.on('uncaughtException', (error) => {
+  if (!isSabrClosingATwiceClosedStream(error)) throw error;
+  console.error('[extractor] a Stream closed itself twice; the Room is still up:', error.message);
 });
 
 console.log(`server ready on http://${HOST}:${PORT}  (db: ${DB_FILE})`);

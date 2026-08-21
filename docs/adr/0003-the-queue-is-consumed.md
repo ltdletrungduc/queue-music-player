@@ -17,3 +17,14 @@ which nothing that happens during a session can modify.
 
 Consequence: reintroducing Repeat All means refilling the Queue from History,
 which is real work. Under the cursor model it would have been nearly free.
+
+## Amendment: Previous puts a Track back
+
+Previous returns the Track being left to the front of the Queue, so a Track can
+re-enter the Queue after it has begun playing. The invariant is therefore not
+"a Track never returns to the Queue" but "a Track leaves the Queue when it
+starts playing, and only an explicit act can put it back".
+
+The alternative was to drop the abandoned Track, which loses whatever someone
+queued the moment anyone reaches for Previous. Sending it to the front means
+stepping back and forward again returns the Room to where it was.

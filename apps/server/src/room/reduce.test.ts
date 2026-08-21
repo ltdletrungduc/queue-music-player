@@ -391,3 +391,131 @@ describe('the Player reporting where the audio has reached', () => {
     expect(state.transport.positionReportedAt).toBe(88);
   });
 });
+
+describe('going back', () => {
+  const previous = (state: RoomState, nickname = 'Duc'): Command => ({
+    type: 'transport/previous',
+    trackId: state.nowPlaying?.id ?? 'nothing',
+    nickname
+  });
+
+  /** A Room playing 'bbbbbbbbbbb', having already played 'aaaaaaaaaaa'. */
+  const partWayThrough = (secondsIn: number, startedAtMs = 0): RoomState => {
+    const twoTracks = withTracks('aaaaaaaaaaa', 'bbbbbbbbbbb');
+    const ended = reduce(twoTracks, { type: 'track/ended', trackId: twoTracks.nowPlaying!.id }, ctx(startedAtMs)).state;
+    return {
+      ...ended,
+      transport: { ...ended.transport, positionSeconds: secondsIn, positionReportedAt: startedAtMs }
+    };
+  };
+
+  it('restarts the current Track when it is well under way', () => {
+    const before = partWayThrough(30);
+    const { state } = reduce(before, previous(before), ctx(60_000));
+
+    expect(state.nowPlaying?.song.sourceId).toBe('bbbbbbbbbbb');
+    expect(state.transport.positionSeconds).toBe(0);
+    expect(state.history.map((t) => t.song.sourceId)).toEqual(['aaaaaaaaaaa']);
+  });
+
+  it('tells the Player to seek when it restarts a Track it is already playing', () => {
+    const before = partWayThrough(30);
+    const { state } = reduce(before, previous(before), ctx(60_000));
+    expect(state.transport.startedAt).toBe(60_000);
+    expect(state.transport.startedAt).not.toBe(before.transport.startedAt);
+  });
+
+  it('goes back to the last Track when pressed straight away', () => {
+    const before = partWayThrough(1);
+    const { state } = reduce(before, previous(before), ctx(1_000));
+
+    expect(state.nowPlaying?.song.sourceId).toBe('aaaaaaaaaaa');
+    expect(state.history).toEqual([]);
+    expect(state.transport.positionSeconds).toBe(0);
+  });
+
+  it('puts the Track it left at the front of the Queue, not the back', () => {
+    const before = reduce(partWayThrough(1), add('ccccccccccc'), ctx()).state;
+    const { state } = reduce(before, previous(before), ctx(1_000));
+
+    expect(state.queue.map((t) => t.song.sourceId)).toEqual(['bbbbbbbbbbb', 'ccccccccccc']);
+    const keys = state.queue.map((t) => t.orderKey);
+    expect([...keys].sort()).toEqual(keys);
+  });
+
+  it('counts time that has passed since the Player last reported', () => {
+    // Reported at 2s, ten seconds ago: the Track is really twelve seconds in.
+    const before = partWayThrough(2, 1_000);
+    const { state } = reduce(before, previous(before), ctx(11_000));
+    expect(state.nowPlaying?.song.sourceId).toBe('bbbbbbbbbbb');
+  });
+
+  it('starts everyone\'s progress bar again from this instant', () => {
+    // The same reason resume restamps: every Controller measures forward from
+    // the last report, so a Track sent back to the top must move that mark too.
+    const before = partWayThrough(30, 1_000);
+    const { state } = reduce(before, previous(before), ctx(500_000));
+
+    expect(state.transport.positionReportedAt).toBe(500_000);
+    expect(state.transport.positionSeconds).toBe(0);
+  });
+
+  it('plays, even if the Room was paused when it was pressed', () => {
+    const started = partWayThrough(1, 1_000);
+    const paused = reduce(started, { type: 'transport/paused', nickname: 'Duc' }, ctx(2_000)).state;
+    const { state } = reduce(paused, previous(paused), ctx(3_000));
+
+    expect(state.transport.isPlaying).toBe(true);
+  });
+
+  it('does not count time while the Room is paused', () => {
+    const started = partWayThrough(1, 1_000);
+    const paused = reduce(started, { type: 'transport/paused', nickname: 'Duc' }, ctx(2_000)).state;
+    const { state } = reduce(paused, previous(paused), ctx(600_000));
+
+    expect(state.nowPlaying?.song.sourceId).toBe('aaaaaaaaaaa');
+  });
+
+  it('restarts rather than failing when there is nothing to go back to', () => {
+    const before = withTracks('aaaaaaaaaaa');
+    const { state } = reduce(before, previous(before), ctx(1));
+
+    expect(state.nowPlaying?.song.sourceId).toBe('aaaaaaaaaaa');
+    expect(state.queue).toEqual([]);
+    expect(state.history).toEqual([]);
+    expect(state.transport.positionSeconds).toBe(0);
+  });
+
+  it('says who went back, and who merely restarted', () => {
+    const early = partWayThrough(1);
+    expect(reduce(early, previous(early, 'Mai'), ctx(500)).state.lastAction).toEqual({
+      nickname: 'Mai',
+      did: 'previous',
+      at: 500
+    });
+
+    const late = partWayThrough(30);
+    expect(reduce(late, previous(late, 'Mai'), ctx(60_000)).state.lastAction).toEqual({
+      nickname: 'Mai',
+      did: 'restarted',
+      at: 60_000
+    });
+  });
+
+  it('ignores a press aimed at a Track that already moved on', () => {
+    const before = partWayThrough(30);
+    const { state, effects } = reduce(
+      before,
+      { type: 'transport/previous', trackId: 'an-older-track', nickname: 'Duc' },
+      ctx()
+    );
+    expect(state).toBe(before);
+    expect(effects).toEqual([]);
+  });
+
+  it('does nothing when the Room is idle', () => {
+    const idle = emptyRoom();
+    const { state } = reduce(idle, { type: 'transport/previous', trackId: 'x', nickname: 'Duc' }, ctx());
+    expect(state).toBe(idle);
+  });
+});

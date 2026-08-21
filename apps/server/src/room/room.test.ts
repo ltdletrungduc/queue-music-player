@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { createRoomRuntime } from './room.js';
 import { openRoomStore, saveRoom } from '../persistence/room-store.js';
 import { emptyRoom } from './reduce.js';
-import type { Song, Track } from './types.js';
+import type { RoomState, Song, Track } from './types.js';
 
 const dirs: string[] = [];
 const tempFile = () => {
@@ -54,6 +54,17 @@ describe('starting the server', () => {
 
     const restarted = createRoomRuntime(openRoomStore(file), clock);
     expect(restarted.snapshot().queue).toEqual(queue);
+  });
+
+  it('starts the clock when it comes back, not at the epoch', () => {
+    const file = tempFile();
+    const first = openRoomStore(file);
+    saveRoom(first, { ...emptyRoom(), nowPlaying: track('t1', 'a0') });
+    first.close();
+
+    const restarted = createRoomRuntime(openRoomStore(file), clock);
+    expect(restarted.snapshot().transport.positionReportedAt).toBe(1_000);
+    expect(restarted.snapshot().transport.startedAt).toBe(1_000);
   });
 
   it('comes back up with nobody connected, however many were here before', () => {

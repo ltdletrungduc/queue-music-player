@@ -45,6 +45,9 @@ export function createRoom() {
     get nowPlaying() {
       return state.nowPlaying;
     },
+    get history() {
+      return state.history;
+    },
     get controllerCount() {
       return state.controllers.length;
     },
@@ -91,6 +94,7 @@ export function createRoom() {
     pause: () => socket?.emit('transport/paused'),
     resume: () => socket?.emit('transport/resumed'),
     skip: (trackId: string) => socket?.emit('transport/skipped', trackId),
+    previous: (trackId: string) => socket?.emit('transport/previous', trackId),
     setVolume: (volume: number) => socket?.emit('transport/volume', volume)
 
     ,

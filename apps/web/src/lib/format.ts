@@ -10,6 +10,10 @@ export function describeAction(action: { did: string; volume?: number }): string
       return 'started it again';
     case 'skipped':
       return 'skipped';
+    case 'previous':
+      return 'went back';
+    case 'restarted':
+      return 'started it over';
     case 'volume':
       return `set the volume to ${Math.round((action.volume ?? 0) * 100)}%`;
     default:

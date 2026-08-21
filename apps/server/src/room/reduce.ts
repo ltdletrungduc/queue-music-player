@@ -1,6 +1,6 @@
 import { generateKeyBetween } from 'fractional-indexing';
 export { emptyRoom } from '@qmp/shared';
-import type { Command, Ctx, Reduced, RoomAction, RoomState, Track } from './types.js';
+import type { Command, Ctx, Reduced, RoomAction, RoomState, Track, Transport } from './types.js';
 
 const unchanged = (state: RoomState): Reduced => ({ state, effects: [] });
 const broadcast = (state: RoomState): Reduced => ({ state, effects: [{ type: 'broadcast-snapshot' }] });
@@ -26,7 +26,13 @@ function startNextOrGoIdle(state: RoomState, now: number): RoomState {
     ...state,
     nowPlaying: next,
     queue: rest,
-    transport: { ...state.transport, isPlaying: true, positionSeconds: 0, positionReportedAt: now }
+    transport: {
+      ...state.transport,
+      isPlaying: true,
+      positionSeconds: 0,
+      positionReportedAt: now,
+      startedAt: now
+    }
   };
 }
 
@@ -40,6 +46,60 @@ function retireNowPlaying(state: RoomState, now: number): RoomState {
 const attributed = (state: RoomState, action: RoomAction): RoomState => ({ ...state, lastAction: action });
 
 const clamp = (value: number) => Math.min(1, Math.max(0, value));
+
+/**
+ * Long enough that Previous takes you back to the last Track when you meant it,
+ * short enough that it restarts the one playing once you have settled into it.
+ * Every music player does this, and people expect it without knowing they do.
+ */
+const RESTART_THRESHOLD_SECONDS = 4;
+
+/**
+ * How far into Now Playing the audio actually is, as opposed to where it was
+ * when the Player last said so. A paused Room has not moved since.
+ */
+function elapsedSeconds(transport: Transport, now: number): number {
+  const { positionSeconds, positionReportedAt, isPlaying } = transport;
+  if (!isPlaying || positionReportedAt === 0) return positionSeconds;
+  return positionSeconds + (now - positionReportedAt) / 1000;
+}
+
+/**
+ * Puts the audio back at the top of whatever is in Now Playing, and plays it.
+ * Reaching for Previous is a request to hear something; a Room that stayed
+ * silent after it would look broken.
+ */
+const fromTheTop = (state: RoomState, now: number): RoomState => ({
+  ...state,
+  transport: {
+    ...state.transport,
+    isPlaying: true,
+    positionSeconds: 0,
+    positionReportedAt: now,
+    startedAt: now
+  }
+});
+
+/**
+ * Steps back to the Track before this one, sending the Track being left to the
+ * front of the Queue so it plays next rather than being lost.
+ */
+function goBack(state: RoomState, now: number): RoomState {
+  const leaving = state.nowPlaying;
+  const [wentBefore, ...older] = state.history;
+  if (!leaving || !wentBefore) return fromTheTop(state, now);
+
+  const firstWaiting = state.queue[0]?.orderKey ?? null;
+  return fromTheTop(
+    {
+      ...state,
+      nowPlaying: wentBefore,
+      history: older,
+      queue: [{ ...leaving, orderKey: generateKeyBetween(null, firstWaiting) }, ...state.queue]
+    },
+    now
+  );
+}
 
 export function reduce(state: RoomState, command: Command, ctx: Ctx): Reduced {
   switch (command.type) {
@@ -116,6 +176,22 @@ export function reduce(state: RoomState, command: Command, ctx: Ctx): Reduced {
         attributed(retireNowPlaying(state, ctx.now), {
           nickname: command.nickname,
           did: 'skipped',
+          at: ctx.now
+        })
+      );
+    }
+
+    case 'transport/previous': {
+      if (state.nowPlaying?.id !== command.trackId) return unchanged(state);
+
+      // Well into a Track, or with nothing behind it, Previous means "again".
+      const settledIn = elapsedSeconds(state.transport, ctx.now) > RESTART_THRESHOLD_SECONDS;
+      const goingBack = !settledIn && state.history.length > 0;
+
+      return broadcast(
+        attributed(goingBack ? goBack(state, ctx.now) : fromTheTop(state, ctx.now), {
+          nickname: command.nickname,
+          did: goingBack ? 'previous' : 'restarted',
           at: ctx.now
         })
       );

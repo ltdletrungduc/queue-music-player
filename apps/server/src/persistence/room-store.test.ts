@@ -115,7 +115,7 @@ describe('a Room store', () => {
     saveRoom(store, {
       ...emptyRoom(),
       nowPlaying: track('playing', 'a1'),
-      transport: { isPlaying: true, volume: 0.5, positionSeconds: 91, positionReportedAt: 1234 }
+      transport: { isPlaying: true, volume: 0.5, positionSeconds: 91, positionReportedAt: 1234, startedAt: 1000 }
     });
     expect(loadRoom(store).transport.positionSeconds).toBe(0);
   });

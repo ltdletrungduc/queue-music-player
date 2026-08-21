@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy, onMount } from 'svelte';
+  import { onDestroy, onMount, untrack } from 'svelte';
   import '../../app.css';
   import { createRoom } from '$lib/room.svelte';
 
@@ -45,6 +45,26 @@
     void nowPlaying?.id;
     void room.transport.isPlaying;
     void obeyTransport();
+  });
+
+  // Restarting a Track changes nothing the audio element would notice on its
+  // own — same Track, same source — so the Room says when a playthrough began
+  // and the Player moves the needle to where the Room says it should be.
+  //
+  // Only the beginning of a *new* playthrough may move the needle. Every
+  // snapshot replaces the Room wholesale, so this runs once a second whether or
+  // not anything changed; seeking each time would drag the audio backwards to
+  // the Player's own last report, for ever.
+  let seekedTo = -1;
+  $effect(() => {
+    const startedAt = room.transport.startedAt;
+    // Recording the seek before doing it would lose it entirely on the run where
+    // the element is not mounted yet, and nothing would try again.
+    if (!audio || startedAt === seekedTo) return;
+    seekedTo = startedAt;
+    untrack(() => {
+      if (audio) audio.currentTime = room.transport.positionSeconds;
+    });
   });
 
   $effect(() => {

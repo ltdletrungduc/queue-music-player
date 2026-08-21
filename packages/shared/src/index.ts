@@ -45,6 +45,12 @@ export type Transport = {
   positionSeconds: number;
   /** When that report was made, so a Controller can carry the clock forward itself. */
   positionReportedAt: number;
+  /**
+   * When this playthrough of Now Playing began. Changes when a Track starts and
+   * when one is restarted from the top, and is how the Player knows to seek —
+   * restarting the Track it is already playing changes nothing else about it.
+   */
+  startedAt: number;
 };
 
 /** The last thing anyone did to the Transport, so the Room can see who did it. */
@@ -52,7 +58,7 @@ export type RoomAction = {
   nickname: string;
   at: number;
 } & (
-  | { did: 'paused' | 'resumed' | 'skipped' }
+  | { did: 'paused' | 'resumed' | 'skipped' | 'previous' | 'restarted' }
   /** Carried as the number it is; how to say it is the interface's business. */
   | { did: 'volume'; volume: number }
 );
@@ -77,7 +83,7 @@ export const emptyRoom = (): RoomState => ({
   queue: [],
   nowPlaying: null,
   history: [],
-  transport: { isPlaying: false, volume: 1, positionSeconds: 0, positionReportedAt: 0 },
+  transport: { isPlaying: false, volume: 1, positionSeconds: 0, positionReportedAt: 0, startedAt: 0 },
   lastAction: null,
   controllers: []
 });

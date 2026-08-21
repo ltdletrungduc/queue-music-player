@@ -21,7 +21,16 @@ export type Clock = {
  * performed here, so the transport stays the only thing that knows about sockets.
  */
 export function createRoomRuntime(store: RoomStore, clock: Clock): RoomRuntime {
-  let room = loadRoom(store);
+  const restored = loadRoom(store);
+  // Where the audio had reached is not written down, so a restored Track starts
+  // from the top — but it starts *now*, not at the epoch, or everything that
+  // measures elapsed playback reads the Room as having just begun in 1970.
+  let room: RoomState = restored.nowPlaying
+    ? {
+        ...restored,
+        transport: { ...restored.transport, positionReportedAt: clock.now(), startedAt: clock.now() }
+      }
+    : restored;
 
   return {
     snapshot: () => room,
