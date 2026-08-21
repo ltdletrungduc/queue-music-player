@@ -1,6 +1,9 @@
 <script lang="ts">
   import { onDestroy, onMount, untrack } from 'svelte';
-  import '../../app.css';
+  import Icon from '@iconify/svelte';
+  import * as Alert from '$lib/components/ui/alert';
+  import { Button } from '$lib/components/ui/button';
+  import * as Empty from '$lib/components/ui/empty';
   import { createRoom } from '$lib/room.svelte';
 
   const room = createRoom();
@@ -47,14 +50,18 @@
     void obeyTransport();
   });
 
-  // Restarting a Track changes nothing the audio element would notice on its
-  // own — same Track, same source — so the Room says when a playthrough began
-  // and the Player moves the needle to where the Room says it should be.
+  $effect(() => {
+    if (audio) audio.volume = room.transport.volume;
+  });
+
+  // Restarting a Track changes nothing an audio element would notice on its own
+  // — same Track, same source — so the Room says when a playthrough began and the
+  // Player moves the needle to where the Room says it should be.
   //
-  // Only the beginning of a *new* playthrough may move the needle. Every
-  // snapshot replaces the Room wholesale, so this runs once a second whether or
-  // not anything changed; seeking each time would drag the audio backwards to
-  // the Player's own last report, for ever.
+  // Only the beginning of a *new* playthrough may move it. Every snapshot
+  // replaces the Room wholesale, so this runs once a second whether or not
+  // anything changed; seeking each time would drag the audio backwards to the
+  // Player's own last report, for ever.
   let seekedTo = -1;
   $effect(() => {
     const startedAt = room.transport.startedAt;
@@ -65,10 +72,6 @@
     untrack(() => {
       if (audio) audio.currentTime = room.transport.positionSeconds;
     });
-  });
-
-  $effect(() => {
-    if (audio) audio.volume = room.transport.volume;
   });
 
   // Nobody else can know where the audio has reached, so the Player says so
@@ -82,15 +85,13 @@
   });
 </script>
 
-<main class="flex min-h-dvh flex-col items-center justify-center gap-6 bg-neutral-950 px-6 text-neutral-100">
+<main class="flex min-h-dvh flex-col items-center justify-center gap-6 px-6">
   {#if !started}
-    <button
-      onclick={start}
-      class="rounded-full bg-neutral-100 px-8 py-4 text-lg font-medium text-neutral-900"
-    >
+    <Button size="lg" class="h-14 rounded-full px-10 text-lg" onclick={start}>
+      <Icon icon="ic:round-play-arrow" data-icon="inline-start" />
       Start the speaker
-    </button>
-    <p class="text-sm text-neutral-500">Sound comes out of this device only.</p>
+    </Button>
+    <p class="text-sm text-muted-foreground">Sound comes out of this device only.</p>
   {:else if nowPlaying}
     <img
       src={nowPlaying.song.artworkUrl}
@@ -98,19 +99,35 @@
       class="aspect-video w-full max-w-2xl rounded-xl object-cover shadow-2xl"
       class:opacity-40={!room.transport.isPlaying}
     />
-    <div class="text-center">
+    <div class="flex flex-col items-center gap-1 text-center">
       <h1 class="text-2xl font-semibold tracking-tight">{nowPlaying.song.title}</h1>
-      <p class="mt-1 text-neutral-400">{nowPlaying.song.author}</p>
-      <p class="mt-3 text-xs text-neutral-600">
-        {#if room.transport.isPlaying}added by {nowPlaying.addedByNickname}{:else}Paused{/if}
+      <p class="text-muted-foreground">{nowPlaying.song.author}</p>
+      <p class="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
+        {#if room.transport.isPlaying}
+          added by {nowPlaying.addedByNickname}
+        {:else}
+          <Icon icon="ic:round-pause" />
+          Paused
+        {/if}
       </p>
     </div>
   {:else}
-    <p class="text-lg text-neutral-500">Queue's empty — add something from your phone.</p>
+    <Empty.Root>
+      <Empty.Header>
+        <Empty.Media variant="icon">
+          <Icon icon="ic:round-queue-music" />
+        </Empty.Media>
+        <Empty.Title>Queue's empty</Empty.Title>
+        <Empty.Description>Add something from your phone.</Empty.Description>
+      </Empty.Header>
+    </Empty.Root>
   {/if}
 
   {#if problem}
-    <p role="alert" class="rounded-lg bg-red-950/60 px-3 py-2 text-sm text-red-200">{problem}</p>
+    <Alert.Root variant="destructive" class="max-w-md">
+      <Icon icon="ic:round-error-outline" />
+      <Alert.Description>{problem}</Alert.Description>
+    </Alert.Root>
   {/if}
 
   <audio
