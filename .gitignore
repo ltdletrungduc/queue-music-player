@@ -1,0 +1,24 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# build output
+.svelte-kit/
+build/
+dist/
+
+# env & secrets
+.env
+.env.*
+!.env.example
+
+# local player state
+*.sqlite
+*.sqlite-journal
+data/
+
+# os / editor
+.DS_Store
+*.log
+.idea/
+.vscode/
