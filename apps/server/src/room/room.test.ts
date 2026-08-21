@@ -33,7 +33,6 @@ const track = (id: string, orderKey: string): Track => ({
   id,
   song: song(id),
   orderKey,
-  addedByControllerId: 'c1',
   addedByNickname: 'Duc',
   addedAt: 1_700_000_000_000
 });

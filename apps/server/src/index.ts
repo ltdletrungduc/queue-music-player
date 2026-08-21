@@ -18,7 +18,7 @@ import type { Effect } from './room/types.js';
 import type { SourceProvider } from './sources/types.js';
 import { randomBytes } from 'node:crypto';
 import { admits, readAccess, type Role } from './access.js';
-import type { AddResult } from '@qmp/shared';
+import type { AddResult, Song } from '@qmp/shared';
 
 // Secrets live in .env, never in the repository. See .env.example.
 try {
@@ -212,6 +212,39 @@ io.on('connection', (socket) => {
   socket.on('track/removed', (trackId: unknown) => {
     if (!shapesTheQueue || typeof trackId !== 'string') return;
     apply(room.dispatch({ type: 'track/removed', trackId, nickname }));
+  });
+
+  socket.on(
+    'playlist/track-saved',
+    (playlistId: unknown, newPlaylistName: unknown, songId: unknown) => {
+      if (!shapesTheQueue || typeof songId !== 'string') return;
+      if (playlistId !== null && typeof playlistId !== 'string') return;
+
+      // The Song is taken from the Room, not from the caller: a Controller may
+      // save what is here, not describe something that is not.
+      const song: Song | undefined = room.findSong(songId);
+      if (!song) return;
+
+      apply(
+        room.dispatch({
+          type: 'playlist/track-saved',
+          playlistId,
+          newPlaylistName: typeof newPlaylistName === 'string' ? newPlaylistName : undefined,
+          song,
+          nickname
+        })
+      );
+    }
+  );
+
+  socket.on('playlist/renamed', (playlistId: unknown, name: unknown) => {
+    if (!shapesTheQueue || typeof playlistId !== 'string' || typeof name !== 'string') return;
+    apply(room.dispatch({ type: 'playlist/renamed', playlistId, name, nickname }));
+  });
+
+  socket.on('playlist/loaded', (playlistId: unknown) => {
+    if (!shapesTheQueue || typeof playlistId !== 'string') return;
+    apply(room.dispatch({ type: 'playlist/loaded', playlistId, nickname }));
   });
 
   socket.on('transport/paused', () => {

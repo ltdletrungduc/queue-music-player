@@ -30,7 +30,6 @@ const track = (id: string, orderKey: string, sourceId = id): Track => ({
   id,
   song: song(sourceId),
   orderKey,
-  addedByControllerId: 'c1',
   addedByNickname: 'Duc',
   addedAt: 1_700_000_000_000
 });
@@ -156,6 +155,7 @@ describe('a Room store', () => {
     // Pretend this Room predates the column, as a real one would.
     first.exec('ALTER TABLE tracks DROP COLUMN unplayable_reason');
     first.exec('ALTER TABLE tracks DROP COLUMN position_seconds');
+    first.exec('ALTER TABLE tracks ADD COLUMN added_by_controller_id TEXT NOT NULL DEFAULT \'\'');
     first.close();
 
     const reopened = openRoomStore(file);
@@ -190,5 +190,64 @@ describe('a Room store', () => {
     first.close();
 
     expect(loadRoom(openRoomStore(file))).toEqual(saved);
+  });
+});
+
+describe('Playlists in the store', () => {
+  const playlist = (id: string, trackIds: string[]) => ({
+    id,
+    name: `List ${id}`,
+    createdByNickname: 'Duc',
+    createdAt: 1_700_000_000_000,
+    // A saved Track remembers a name, not a device: the phone that added it may
+    // be long gone by the time the Playlist is used again.
+    tracks: trackIds.map((t, i) => ({ ...track(t, `a${i}`) }))
+  });
+
+  it('gives back the Playlists it was given', () => {
+    const store = openRoomStore(tempFile());
+    const before = { ...emptyRoom(), playlists: [playlist('p1', ['t1', 't2'])] };
+    saveRoom(store, before);
+    expect(loadRoom(store)).toEqual(before);
+  });
+
+  it('survives the process going away', () => {
+    const file = tempFile();
+    const first = openRoomStore(file);
+    saveRoom(first, { ...emptyRoom(), playlists: [playlist('p1', ['t1'])] });
+    first.close();
+
+    expect(loadRoom(openRoomStore(file)).playlists[0]?.tracks).toHaveLength(1);
+  });
+
+  it('will not hold the same Song twice, whatever it is told', () => {
+    const store = openRoomStore(tempFile());
+    const twice = {
+      ...emptyRoom(),
+      playlists: [
+        {
+          ...playlist('p1', []),
+          tracks: [
+          { ...track('t1', 'a0', 'same') },
+          { ...track('t2', 'a1', 'same') }
+        ]
+        }
+      ]
+    };
+    // The schema is the guarantee, not the caller's good manners.
+    expect(() => saveRoom(store, twice)).toThrow(/UNIQUE/);
+  });
+
+  it('keeps a Playlist separate from the Queue', () => {
+    const store = openRoomStore(tempFile());
+    saveRoom(store, {
+      ...emptyRoom(),
+      queue: [track('q1', 'a0', 'shared')],
+      playlists: [playlist('p1', ['s1'])]
+    });
+
+    const loaded = loadRoom(store);
+    expect(loaded.queue.map((t) => t.id)).toEqual(['q1']);
+    expect(loaded.playlists[0]?.tracks.map((t) => t.id)).toEqual(['s1']);
   });
 });

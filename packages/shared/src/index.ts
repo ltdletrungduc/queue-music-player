@@ -22,11 +22,22 @@ export type Track = {
   song: Song;
   /** Fractional index, so a reorder rewrites one row and concurrent drags converge. */
   orderKey: string;
-  addedByControllerId: string;
   addedByNickname: string;
   addedAt: number;
   /** Why this Track could not be played, when it could not be. */
   unplayableReason?: string;
+};
+
+/**
+ * A saved, durable collection of Tracks. Attributed to whoever started it and
+ * editable by anyone in the Room; a Song appears in one at most once.
+ */
+export type Playlist = {
+  id: string;
+  name: string;
+  createdByNickname: string;
+  createdAt: number;
+  tracks: Track[];
 };
 
 export type Controller = {
@@ -71,7 +82,20 @@ export type RoomAction = {
   nickname: string;
   at: number;
 } & (
-  | { did: 'paused' | 'resumed' | 'skipped' | 'previous' | 'restarted' | 'moved' | 'play-next' | 'removed' }
+  | {
+      did:
+        | 'paused'
+        | 'resumed'
+        | 'skipped'
+        | 'previous'
+        | 'restarted'
+        | 'moved'
+        | 'play-next'
+        | 'removed'
+        | 'saved-to-playlist'
+        | 'renamed-playlist';
+    }
+  | { did: 'loaded-playlist'; playlistName: string; added: number; alreadyQueued: number }
   /** Carried as the number it is; how to say it is the interface's business. */
   | { did: 'volume'; volume: number }
 );
@@ -86,6 +110,7 @@ export type RoomState = {
   transport: Transport;
   lastAction: RoomAction | null;
   controllers: Controller[];
+  playlists: Playlist[];
   /**
    * Every connection currently attached to the speaker. Usually none or one, but
    * held as a list so that a second Player arriving and leaving again cannot
@@ -112,5 +137,6 @@ export const emptyRoom = (): RoomState => ({
   },
   lastAction: null,
   controllers: [],
+  playlists: [],
   playerConnections: []
 });

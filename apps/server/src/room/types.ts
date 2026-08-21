@@ -1,6 +1,15 @@
 import type { RoomState, Song } from '@qmp/shared';
 
-export type { Controller, RoomAction, RoomState, Song, SourceName, Track, Transport } from '@qmp/shared';
+export type {
+  Controller,
+  Playlist,
+  RoomAction,
+  RoomState,
+  Song,
+  SourceName,
+  Track,
+  Transport
+} from '@qmp/shared';
 
 export type Command =
   | { type: 'controller/connected'; controllerId: string; connectionId: string; nickname: string }
@@ -8,6 +17,16 @@ export type Command =
   | { type: 'player/connected'; connectionId: string }
   | { type: 'player/disconnected'; connectionId: string }
   | { type: 'track/failed'; trackId: string; reason: string }
+  /** Save a Song. A null playlistId starts a new Playlist named by newPlaylistName. */
+  | {
+      type: 'playlist/track-saved';
+      playlistId: string | null;
+      newPlaylistName?: string | undefined;
+      song: Song;
+      nickname: string;
+    }
+  | { type: 'playlist/renamed'; playlistId: string; name: string; nickname: string }
+  | { type: 'playlist/loaded'; playlistId: string; nickname: string }
   | { type: 'track/added'; song: Song; controllerId: string; nickname: string }
   | { type: 'track/ended'; trackId: string }
   /** Place a waiting Track after another, or at the front when nothing precedes it. */

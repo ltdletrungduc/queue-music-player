@@ -113,7 +113,6 @@ describe('adding a Track', () => {
   it('attributes it to whoever pasted the link', () => {
     const { state } = reduce(playing(), add('aaaaaaaaaaa', 'Duc'), ctx(77));
     expect(state.queue[0]).toMatchObject({
-      addedByControllerId: 'c1',
       addedByNickname: 'Duc',
       addedAt: 77
     });
@@ -833,5 +832,174 @@ describe('a Track that gets another go', () => {
     const back = reduce(givenUp, { type: 'transport/previous', trackId: givenUp.nowPlaying!.id, nickname: 'Duc' }, ctx()).state;
     expect(back.nowPlaying?.song.sourceId).toBe('aaaaaaaaaaa');
     expect(back.nowPlaying?.unplayableReason).toBeUndefined();
+  });
+});
+
+describe('saving Tracks for another night', () => {
+  const roomWith = () => withTracks('aaaaaaaaaaa', 'bbbbbbbbbbb');
+  const save = (songId: string, playlistId: string | null, nickname = 'Duc'): Command => ({
+    type: 'playlist/track-saved',
+    playlistId,
+    newPlaylistName: playlistId === null ? 'Duc\'s night' : undefined,
+    song: song(songId),
+    nickname
+  });
+  const onlyPlaylist = (state: RoomState) => state.playlists[0]!;
+
+  it('starts a Playlist when there is none to put the Track in', () => {
+    const { state } = reduce(roomWith(), save('aaaaaaaaaaa', null, 'Mai'), ctx(400));
+    const list = onlyPlaylist(state);
+
+    expect(list.name).toBe("Duc's night");
+    expect(list.createdByNickname).toBe('Mai');
+    expect(list.createdAt).toBe(400);
+    expect(list.tracks.map((t) => t.song.sourceId)).toEqual(['aaaaaaaaaaa']);
+  });
+
+  it('puts later Tracks into the Playlist that already exists', () => {
+    const first = reduce(roomWith(), save('aaaaaaaaaaa', null), ctx()).state;
+    const { state } = reduce(first, save('bbbbbbbbbbb', onlyPlaylist(first).id), ctx());
+
+    expect(state.playlists).toHaveLength(1);
+    expect(onlyPlaylist(state).tracks.map((t) => t.song.sourceId)).toEqual([
+      'aaaaaaaaaaa',
+      'bbbbbbbbbbb'
+    ]);
+  });
+
+  it('refuses a Song the Playlist already holds, and changes nothing', () => {
+    const first = reduce(roomWith(), save('aaaaaaaaaaa', null), ctx()).state;
+    const { state, effects } = reduce(first, save('aaaaaaaaaaa', onlyPlaylist(first).id), ctx());
+
+    expect(state).toBe(first);
+    expect(effects).toEqual([]);
+  });
+
+  it('says who saved something', () => {
+    const { state } = reduce(roomWith(), save('aaaaaaaaaaa', null, 'Mai'), ctx(9));
+    expect(state.lastAction).toEqual({ nickname: 'Mai', did: 'saved-to-playlist', at: 9 });
+  });
+
+  it('ignores a save into a Playlist that is not there', () => {
+    const before = roomWith();
+    const { state } = reduce(before, save('aaaaaaaaaaa', 'no-such-list'), ctx());
+    expect(state).toBe(before);
+  });
+
+  it('can be renamed by anyone', () => {
+    const first = reduce(roomWith(), save('aaaaaaaaaaa', null), ctx()).state;
+    const { state } = reduce(
+      first,
+      { type: 'playlist/renamed', playlistId: onlyPlaylist(first).id, name: 'Birthday', nickname: 'Mai' },
+      ctx(3)
+    );
+
+    expect(onlyPlaylist(state).name).toBe('Birthday');
+    expect(state.lastAction).toEqual({ nickname: 'Mai', did: 'renamed-playlist', at: 3 });
+  });
+
+  it('refuses a name with nothing in it', () => {
+    const first = reduce(roomWith(), save('aaaaaaaaaaa', null), ctx()).state;
+    const { state } = reduce(
+      first,
+      { type: 'playlist/renamed', playlistId: onlyPlaylist(first).id, name: '   ', nickname: 'Mai' },
+      ctx()
+    );
+    expect(state).toBe(first);
+  });
+});
+
+describe('tipping a Playlist into the Queue', () => {
+  const withSaved = (...sourceIds: string[]) => {
+    let state = withTracks('zzzzzzzzzzz');
+    let playlistId: string | null = null;
+    for (const id of sourceIds) {
+      state = reduce(
+        state,
+        {
+          type: 'playlist/track-saved',
+          playlistId,
+          newPlaylistName: playlistId === null ? 'Saved' : undefined,
+          song: song(id),
+          nickname: 'Duc'
+        },
+        ctx()
+      ).state;
+      playlistId = state.playlists[0]!.id;
+    }
+    return { state, playlistId: playlistId! };
+  };
+
+  const load = (playlistId: string, nickname = 'Mai'): Command => ({
+    type: 'playlist/loaded',
+    playlistId,
+    nickname
+  });
+
+  it('adds every saved Track to the end of the Queue', () => {
+    const { state: saved, playlistId } = withSaved('aaaaaaaaaaa', 'bbbbbbbbbbb');
+    const queued = reduce(saved, add('ccccccccccc'), ctx()).state;
+    const { state } = reduce(queued, load(playlistId), ctx());
+
+    expect(state.queue.map((t) => t.song.sourceId)).toEqual([
+      'ccccccccccc',
+      'aaaaaaaaaaa',
+      'bbbbbbbbbbb'
+    ]);
+  });
+
+  it('says how many it added, and how many were already waiting', () => {
+    const { state: saved, playlistId } = withSaved('aaaaaaaaaaa', 'bbbbbbbbbbb');
+    const queued = reduce(saved, add('aaaaaaaaaaa'), ctx()).state;
+    const { state } = reduce(queued, load(playlistId, 'Mai'), ctx(11));
+
+    expect(state.lastAction).toEqual({
+      nickname: 'Mai',
+      did: 'loaded-playlist',
+      playlistName: 'Saved',
+      added: 2,
+      // One of the two was already waiting. Said, not acted on.
+      alreadyQueued: 1,
+      at: 11
+    });
+  });
+
+  it('keeps a Track that was already waiting rather than dropping it', () => {
+    const { state: saved, playlistId } = withSaved('aaaaaaaaaaa');
+    const queued = reduce(saved, add('aaaaaaaaaaa'), ctx()).state;
+    const { state } = reduce(queued, load(playlistId), ctx());
+
+    expect(state.queue.filter((t) => t.song.sourceId === 'aaaaaaaaaaa')).toHaveLength(2);
+  });
+
+  it('leaves the Playlist untouched when the Queue is then changed', () => {
+    const { state: saved, playlistId } = withSaved('aaaaaaaaaaa', 'bbbbbbbbbbb');
+    const loaded = reduce(saved, load(playlistId), ctx()).state;
+    const emptied = loaded.queue.reduce(
+      (state, track) =>
+        reduce(state, { type: 'track/removed', trackId: track.id, nickname: 'Duc' }, ctx()).state,
+      loaded
+    );
+
+    expect(emptied.queue).toEqual([]);
+    expect(emptied.playlists[0]!.tracks.map((t) => t.song.sourceId)).toEqual([
+      'aaaaaaaaaaa',
+      'bbbbbbbbbbb'
+    ]);
+  });
+
+  it('starts playing when tipped into an idle Room', () => {
+    const { state: saved, playlistId } = withSaved('aaaaaaaaaaa');
+    const idle = reduce(saved, { type: 'transport/skipped', trackId: saved.nowPlaying!.id, nickname: 'Duc' }, ctx()).state;
+    expect(idle.nowPlaying).toBeNull();
+
+    const { state } = reduce(idle, load(playlistId), ctx());
+    expect(state.nowPlaying?.song.sourceId).toBe('aaaaaaaaaaa');
+  });
+
+  it('ignores a Playlist that is not there', () => {
+    const { state: saved } = withSaved('aaaaaaaaaaa');
+    const { state } = reduce(saved, load('no-such-list'), ctx());
+    expect(state).toBe(saved);
   });
 });

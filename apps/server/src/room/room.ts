@@ -1,5 +1,5 @@
 import { reduce } from './reduce.js';
-import { loadRoom, saveRoom, type RoomStore } from '../persistence/room-store.js';
+import { loadRoom, savePosition, saveRoom, type RoomStore } from '../persistence/room-store.js';
 import type { Command, Effect, RoomState, Song } from './types.js';
 
 export type RoomRuntime = {
@@ -40,10 +40,29 @@ export function createRoomRuntime(store: RoomStore, clock: Clock): RoomRuntime {
 
     dispatch(command) {
       const { state, effects } = reduce(room, command, { now: clock.now(), newId: clock.newId });
-      // Controllers coming and going never touch the Queue, and the Queue is all
-      // that is persisted, so most Commands should not write to disk at all.
-      if (state.queue !== room.queue) saveRoom(store, state);
+      const before = room;
       room = state;
+
+      // Controllers coming and going are not written down, so most Commands
+      // touch no disk at all. Everything that is written down is checked, not
+      // just the Queue: gating on the Queue alone quietly lost every Playlist,
+      // because saving one never changes the Queue.
+      if (
+        state.queue !== before.queue ||
+        state.nowPlaying !== before.nowPlaying ||
+        state.history !== before.history ||
+        state.playlists !== before.playlists
+      ) {
+        saveRoom(store, state);
+      } else if (
+        state.nowPlaying &&
+        state.transport.positionSeconds !== before.transport.positionSeconds
+      ) {
+        // Once a second while a Track plays. Far too often for a whole-Room
+        // rewrite, and the only reason a restart can pick a Track up mid-way.
+        savePosition(store, state.nowPlaying.id, state.transport.positionSeconds);
+      }
+
       return effects;
     }
   };

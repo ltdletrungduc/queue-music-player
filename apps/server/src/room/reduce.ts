@@ -1,6 +1,16 @@
 import { generateKeyBetween } from 'fractional-indexing';
 export { emptyRoom } from '@qmp/shared';
-import type { Command, Ctx, Reduced, RoomAction, RoomState, Track, Transport } from './types.js';
+import type {
+  Command,
+  Ctx,
+  Playlist,
+  Reduced,
+  RoomAction,
+  RoomState,
+  Song,
+  Track,
+  Transport
+} from './types.js';
 
 const unchanged = (state: RoomState): Reduced => ({ state, effects: [] });
 const broadcast = (state: RoomState): Reduced => ({ state, effects: [{ type: 'broadcast-snapshot' }] });
@@ -143,6 +153,17 @@ function goBack(state: RoomState, now: number): RoomState {
   );
 }
 
+/** A saved Track. It carries no place in the Queue, because it is not in one. */
+function savedTrack(song: Song, after: Track | undefined, nickname: string, ctx: Ctx): Track {
+  return {
+    id: ctx.newId(),
+    song,
+    orderKey: generateKeyBetween(after?.orderKey ?? null, null),
+    addedByNickname: nickname,
+    addedAt: ctx.now
+  };
+}
+
 export function reduce(state: RoomState, command: Command, ctx: Ctx): Reduced {
   switch (command.type) {
     case 'controller/connected': {
@@ -227,7 +248,6 @@ export function reduce(state: RoomState, command: Command, ctx: Ctx): Reduced {
         id: ctx.newId(),
         song: command.song,
         orderKey: generateKeyBetween(last, null),
-        addedByControllerId: command.controllerId,
         addedByNickname: command.nickname,
         addedAt: ctx.now
       };
@@ -269,6 +289,96 @@ export function reduce(state: RoomState, command: Command, ctx: Ctx): Reduced {
         attributed(
           { ...state, queue: state.queue.filter((t) => t.id !== command.trackId) },
           { nickname: command.nickname, did: 'removed', at: ctx.now }
+        )
+      );
+    }
+
+    case 'playlist/track-saved': {
+      const existing = state.playlists.find((p) => p.id === command.playlistId);
+      if (command.playlistId !== null && !existing) return unchanged(state);
+
+      // A Song appears in a Playlist at most once. Saying so and changing
+      // nothing beats quietly growing a list of the same Song.
+      if (existing?.tracks.some((t) => t.song.id === command.song.id)) return unchanged(state);
+
+      const saved = savedTrack(command.song, existing?.tracks.at(-1), command.nickname, ctx);
+      const playlists = existing
+        ? state.playlists.map((p) =>
+            p.id === existing.id ? { ...p, tracks: [...p.tracks, saved] } : p
+          )
+        : [
+            ...state.playlists,
+            {
+              id: ctx.newId(),
+              name: command.newPlaylistName?.trim() || 'Saved',
+              createdByNickname: command.nickname,
+              createdAt: ctx.now,
+              tracks: [saved]
+            } satisfies Playlist
+          ];
+
+      return broadcast(
+        attributed({ ...state, playlists }, {
+          nickname: command.nickname,
+          did: 'saved-to-playlist',
+          at: ctx.now
+        })
+      );
+    }
+
+    case 'playlist/renamed': {
+      const name = command.name.trim();
+      if (!name || !state.playlists.some((p) => p.id === command.playlistId)) {
+        return unchanged(state);
+      }
+      return broadcast(
+        attributed(
+          {
+            ...state,
+            playlists: state.playlists.map((p) =>
+              p.id === command.playlistId ? { ...p, name } : p
+            )
+          },
+          { nickname: command.nickname, did: 'renamed-playlist', at: ctx.now }
+        )
+      );
+    }
+
+    case 'playlist/loaded': {
+      const playlist = state.playlists.find((p) => p.id === command.playlistId);
+      if (!playlist || playlist.tracks.length === 0) return unchanged(state);
+
+      // Copies, so that whatever happens to the Queue tonight leaves the saved
+      // Playlist as it was.
+      // Being already in the Queue is worth saying, never worth acting on: a
+      // Song someone deliberately queued twice is theirs to queue twice.
+      const alreadyWaiting = new Set(state.queue.map((t) => t.song.id));
+      const alreadyQueued = playlist.tracks.filter((t) => alreadyWaiting.has(t.song.id)).length;
+
+      let last = state.queue.at(-1);
+      const copies = playlist.tracks.map((saved) => {
+        const copy: Track = {
+          id: ctx.newId(),
+          song: saved.song,
+          orderKey: generateKeyBetween(last?.orderKey ?? null, null),
+                addedByNickname: command.nickname,
+          addedAt: ctx.now
+        };
+        last = copy;
+        return copy;
+      });
+
+      return broadcast(
+        attributed(
+          startNextOrGoIdle({ ...state, queue: [...state.queue, ...copies] }, ctx.now),
+          {
+            nickname: command.nickname,
+            did: 'loaded-playlist',
+            playlistName: playlist.name,
+            added: copies.length,
+            alreadyQueued,
+            at: ctx.now
+          }
         )
       );
     }

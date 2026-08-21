@@ -86,6 +86,9 @@ export function createRoom() {
       return state.lastAction;
     },
     /** Whether anything is attached to the speaker at all. */
+    get playlists() {
+      return state.playlists;
+    },
     get playerConnected() {
       return state.playerConnections.length > 0;
     },
@@ -197,6 +200,13 @@ export function createRoom() {
       socket?.emit('track/moved', trackId, afterTrackId),
     playNext: (trackId: string) => socket?.emit('track/play-next', trackId),
     removeTrack: (trackId: string) => socket?.emit('track/removed', trackId),
+
+    /** Save a Song into a Playlist; a null id starts a new one under `name`. */
+    saveToPlaylist: (playlistId: string | null, name: string | null, songId: string) =>
+      socket?.emit('playlist/track-saved', playlistId, name, songId),
+    renamePlaylist: (playlistId: string, name: string) =>
+      socket?.emit('playlist/renamed', playlistId, name),
+    loadPlaylist: (playlistId: string) => socket?.emit('playlist/loaded', playlistId),
     setVolume: (volume: number) => socket?.emit('transport/volume', volume)
 
     ,

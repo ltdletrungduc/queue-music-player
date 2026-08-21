@@ -6,12 +6,16 @@
   import { Badge } from '$lib/components/ui/badge';
   import { Button } from '$lib/components/ui/button';
   import * as Card from '$lib/components/ui/card';
+  import * as Dialog from '$lib/components/ui/dialog';
   import * as Empty from '$lib/components/ui/empty';
+  import * as Field from '$lib/components/ui/field';
+  import { Input } from '$lib/components/ui/input';
   import * as InputGroup from '$lib/components/ui/input-group';
   import { Progress } from '$lib/components/ui/progress';
   import { Separator } from '$lib/components/ui/separator';
   import { Slider } from '$lib/components/ui/slider';
   import JoinForm from '$lib/components/join-form.svelte';
+  import SaveToPlaylist from '$lib/components/save-to-playlist.svelte';
   import { createRoom, remembered } from '$lib/room.svelte';
   import { createProgress } from '$lib/progress.svelte';
   import { asMinutesAndSeconds, describeAction } from '$lib/format';
@@ -111,6 +115,19 @@
     room.setVolume(next);
   }
 
+  const save = (songId: string) => (playlistId: string | null, newName: string | null) =>
+    room.saveToPlaylist(playlistId, newName, songId);
+
+  let renaming = $state<{ id: string; name: string } | null>(null);
+
+  function commitRename(event: SubmitEvent) {
+    event.preventDefault();
+    const target = renaming;
+    if (!target?.name.trim()) return;
+    room.renamePlaylist(target.id, target.name.trim());
+    renaming = null;
+  }
+
   async function add(event: SubmitEvent) {
     event.preventDefault();
     const pasted = url.trim();
@@ -179,6 +196,12 @@
               {track.song.author} · added by {track.addedByNickname}
             </Card.Description>
           </div>
+          <SaveToPlaylist
+            songTitle={track.song.title}
+            songId={track.song.id}
+            playlists={room.playlists}
+            onsave={save(track.song.id)}
+          />
         </div>
       </Card.Header>
 
@@ -312,6 +335,12 @@
                 {track.song.author} · {asMinutesAndSeconds(track.song.durationSeconds)} · added by {track.addedByNickname}
               </p>
             </div>
+            <SaveToPlaylist
+              songTitle={track.song.title}
+              songId={track.song.id}
+              playlists={room.playlists}
+              onsave={save(track.song.id)}
+            />
             {#if index > 0}
               <Button
                 variant="secondary"
@@ -365,10 +394,72 @@
                 class="icon-[ic--round-error-outline] size-4 shrink-0 text-destructive"
               ></span>
             {/if}
+            <SaveToPlaylist
+              songTitle={track.song.title}
+              songId={track.song.id}
+              playlists={room.playlists}
+              onsave={save(track.song.id)}
+            />
+          </li>
+        {/each}
+      </ul>
+    </section>
+  {/if}
+
+  {#if room.playlists.length > 0}
+    <section class="flex flex-col gap-2">
+      <h2 class="text-xs uppercase tracking-wider text-muted-foreground">Playlists</h2>
+      <ul class="flex flex-col gap-2">
+        {#each room.playlists as playlist (playlist.id)}
+          <li class="flex items-center gap-2 rounded-lg border bg-card p-2 text-card-foreground">
+            <span class="icon-[ic--round-queue-music] size-5 shrink-0 text-muted-foreground"></span>
+            <div class="min-w-0 flex-1">
+              <p class="truncate text-sm font-medium">{playlist.name}</p>
+              <p class="truncate text-xs text-muted-foreground">
+                {playlist.tracks.length}
+                {playlist.tracks.length === 1 ? 'track' : 'tracks'} · started by {playlist.createdByNickname}
+              </p>
+            </div>
+            <Button
+              variant="ghost"
+              size="icon-lg"
+              onclick={() => (renaming = { id: playlist.id, name: playlist.name })}
+              aria-label="Rename {playlist.name}"
+            >
+              <span class="icon-[ic--round-edit] size-4"></span>
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              onclick={() => room.loadPlaylist(playlist.id)}
+              disabled={playlist.tracks.length === 0}
+            >
+              Add all
+            </Button>
           </li>
         {/each}
       </ul>
     </section>
   {/if}
 </main>
+
+<Dialog.Root open={renaming !== null} onOpenChange={(open) => !open && (renaming = null)}>
+  <Dialog.Content>
+    <Dialog.Header>
+      <Dialog.Title>Rename playlist</Dialog.Title>
+      <Dialog.Description>Anyone here can rename it.</Dialog.Description>
+    </Dialog.Header>
+    {#if renaming}
+      <form onsubmit={commitRename}>
+        <Field.FieldGroup>
+          <Field.Field>
+            <Field.FieldLabel for="rename">Name</Field.FieldLabel>
+            <Input id="rename" bind:value={renaming.name} autocomplete="off" />
+          </Field.Field>
+          <Button type="submit" disabled={!renaming.name.trim()}>Rename</Button>
+        </Field.FieldGroup>
+      </form>
+    {/if}
+  </Dialog.Content>
+</Dialog.Root>
 {/if}

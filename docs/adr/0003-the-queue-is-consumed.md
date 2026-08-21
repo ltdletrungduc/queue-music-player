@@ -12,8 +12,13 @@ can delete it because it is not in any list. Previous is served by History
 instead of by a cursor.
 
 The word "Playlist" is therefore free to mean something genuinely different: a
-saved, single-owner collection that is *copied* into the Queue when loaded, and
-which nothing that happens during a session can modify.
+saved collection that is *copied* into the Queue when loaded, and which nothing
+that happens during a session can modify.
+
+It is attributed to whoever started it but editable by anyone in the Room. Real
+ownership was considered and rejected: there are no accounts here, so the only
+identity available is a browser's, and enforcing it would mean someone losing
+their phone and their Playlists becoming read-only for ever.
 
 Consequence: reintroducing Repeat All means refilling the Queue from History,
 which is real work. Under the cursor model it would have been nearly free.
