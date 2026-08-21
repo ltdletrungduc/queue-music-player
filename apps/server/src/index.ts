@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { Readable } from 'node:stream';
 import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
+import fastifyStatic from '@fastify/static';
 import { Server as SocketServer } from 'socket.io';
 import { createRoomRuntime } from './room/room.js';
 import { addTrackByUrl } from './room/add-track.js';
@@ -18,6 +20,7 @@ import type { Effect } from './room/types.js';
 import type { SourceProvider } from './sources/types.js';
 import { randomBytes } from 'node:crypto';
 import { admits, readAccess, type Role } from './access.js';
+import { isFromThisMachine } from './local-only.js';
 import type { AddResult, Song } from '@qmp/shared';
 
 // Secrets live in .env, never in the repository. See .env.example.
@@ -53,6 +56,35 @@ const app = Fastify({ logger: false });
 app.get('/health', async () => ({ ok: true }));
 
 /**
+ * The built Controller is served from here, so the Room is one origin: one
+ * address to put through a tunnel, one origin for the socket and the audio, and
+ * no secure page reaching for an insecure one.
+ *
+ * Not while developing, where Vite serves the Controller on its own port — a
+ * build left over from last time would otherwise be served here alongside it,
+ * and it takes a while to work out why an edit changed nothing.
+ */
+const CLIENT_BUILD = fileURLToPath(new URL('../../web/build', import.meta.url));
+if (process.env['NODE_ENV'] !== 'development' && existsSync(CLIENT_BUILD)) {
+  await app.register(fastifyStatic, { root: CLIENT_BUILD });
+
+  // adapter-static writes one page and lets the client route from there, so an
+  // unknown path is usually a route rather than a mistake. Only usually: a
+  // missing asset is a missing asset, and answering those with a page of HTML
+  // turns a stale bundle into a mystery instead of a 404.
+  app.setNotFoundHandler((request, reply) => {
+    const looksLikeAPage =
+      request.method === 'GET' &&
+      !request.url.startsWith('/_app/') &&
+      (request.headers.accept ?? '').includes('text/html');
+
+    return looksLikeAPage
+      ? reply.code(200).type('text/html').sendFile('index.html')
+      : reply.code(404).send({ reason: 'Not here.' });
+  });
+}
+
+/**
  * Tickets for the audio endpoint, one per Player connection.
  *
  * An audio element cannot send credentials, and a Song's id is simply its
@@ -71,6 +103,12 @@ const streamTickets = new Set<string>();
 app.get<{ Params: { songId: string }; Querystring: { ticket?: string } }>(
   '/stream/:songId',
   async (request, reply) => {
+  // Audio is for the speaker, and the speaker is here. Serving it to anywhere
+  // else would turn this machine's own connection into a relay for strangers.
+  if (!isFromThisMachine(request.ip, request.headers)) {
+    return reply.code(403).send({ reason: 'Audio does not leave this machine.' });
+  }
+
   const ticket = request.query.ticket;
   if (typeof ticket !== 'string' || !streamTickets.has(ticket)) {
     return reply.code(401).send({ reason: 'This is the speaker\'s door, and it is shut.' });
@@ -119,6 +157,17 @@ function apply(effects: Effect[]): void {
 io.use((socket, next) => {
   const admission = admits(access, socket.handshake.auth);
   if (!admission.ok) return next(new Error(admission.reason));
+
+  // The speaker is a physical thing in a room, and only this machine is in it.
+  // Letting a device elsewhere claim it would drag every byte of audio back out
+  // through this machine's connection to reach a speaker nobody here can hear.
+  if (
+    admission.role === 'player' &&
+    !isFromThisMachine(socket.handshake.address, socket.handshake.headers)
+  ) {
+    return next(new Error('The speaker can only be this machine.'));
+  }
+
   socket.data.role = admission.role;
   next();
 });

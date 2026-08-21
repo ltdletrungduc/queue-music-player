@@ -23,15 +23,19 @@ function controllerId(): string {
   return fresh;
 }
 
-/** Matches PORT in the server. */
-const SERVER_PORT = 5858;
+/** Matches PORT in the server. Only needed while Vite serves this page itself. */
+const DEV_SERVER_PORT = 5858;
 
 /**
- * The server runs on the same host the page came from, so a phone on the LAN
- * just works. Reaching the Room through a tunnel will need a configured origin
- * instead, since the tunnel terminates TLS on a port this does not know about.
+ * Where the Room is.
+ *
+ * In production the server serves this page too, so it is wherever the page came
+ * from — which is what makes a tunnel work: it terminates TLS on one origin and
+ * knows nothing about a second port. In development Vite serves the page on its
+ * own port and the server is next door.
  */
-const serverUrl = () => `${location.protocol}//${location.hostname}:${SERVER_PORT}`;
+const serverUrl = () =>
+  import.meta.env.DEV ? `${location.protocol}//${location.hostname}:${DEV_SERVER_PORT}` : location.origin;
 
 /**
  * What this device was let in with last time, so nobody types it twice.

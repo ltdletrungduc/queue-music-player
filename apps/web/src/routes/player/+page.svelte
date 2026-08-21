@@ -7,6 +7,8 @@
   import { Progress } from '$lib/components/ui/progress';
   import { createRoom } from '$lib/room.svelte';
   import { createProgress } from '$lib/progress.svelte';
+  import { keepAwakeWhile } from '$lib/keep-awake.svelte';
+  import { publishToMediaSession } from '$lib/media-session.svelte';
   import { asMinutesAndSeconds } from '$lib/format';
 
   const room = createRoom();
@@ -97,6 +99,20 @@
 
   $effect(() => {
     if (audio) audio.volume = room.transport.volume;
+  });
+
+  // The room looks at this screen to see what is on; a laptop left alone dims
+  // within minutes.
+  keepAwakeWhile(() => started && room.transport.isPlaying);
+
+  // The same three things the on-screen buttons do, on the machine's own media
+  // keys and lock screen.
+  publishToMediaSession({
+    nowPlaying: () => (started ? room.nowPlaying : null),
+    isPlaying: () => room.transport.isPlaying,
+    onPause: room.pause,
+    onResume: room.resume,
+    onNext: () => room.nowPlaying && room.skip(room.nowPlaying.id)
   });
 
   // Nobody else can know where the audio has reached, so the Player says so
