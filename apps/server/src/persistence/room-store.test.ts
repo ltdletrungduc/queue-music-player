@@ -92,7 +92,32 @@ describe('a Room store', () => {
       history: [track('done', 'a0')]
     };
     saveRoom(store, before);
-    expect(loadRoom(store)).toEqual(before);
+    expect(loadRoom(store)).toEqual({
+      ...before,
+      transport: { ...before.transport, isPlaying: true }
+    });
+  });
+
+  it('comes back playing when something was playing', () => {
+    const store = openRoomStore(tempFile());
+    saveRoom(store, { ...emptyRoom(), nowPlaying: track('playing', 'a1') });
+    expect(loadRoom(store).transport.isPlaying).toBe(true);
+  });
+
+  it('comes back silent when nothing was playing', () => {
+    const store = openRoomStore(tempFile());
+    saveRoom(store, { ...emptyRoom(), queue: [track('waiting', 'a1')] });
+    expect(loadRoom(store).transport.isPlaying).toBe(false);
+  });
+
+  it('starts a restarted Track from the beginning rather than guessing', () => {
+    const store = openRoomStore(tempFile());
+    saveRoom(store, {
+      ...emptyRoom(),
+      nowPlaying: track('playing', 'a1'),
+      transport: { isPlaying: true, volume: 0.5, positionSeconds: 91, positionReportedAt: 1234 }
+    });
+    expect(loadRoom(store).transport.positionSeconds).toBe(0);
   });
 
   it('keeps History most recent first across a restart', () => {

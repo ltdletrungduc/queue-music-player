@@ -237,3 +237,157 @@ describe('the Queue playing itself', () => {
     expect(effects).toEqual([]);
   });
 });
+
+describe('driving the Transport from a phone', () => {
+  const playing = () => withTracks('aaaaaaaaaaa', 'bbbbbbbbbbb');
+  const pause = (nickname = 'Duc'): Command => ({ type: 'transport/paused', nickname });
+  const resume = (nickname = 'Duc'): Command => ({ type: 'transport/resumed', nickname });
+  const skip = (state: RoomState, nickname = 'Duc'): Command => ({
+    type: 'transport/skipped',
+    trackId: state.nowPlaying?.id ?? 'nothing',
+    nickname
+  });
+
+  it('is playing as soon as a Track starts', () => {
+    expect(playing().transport.isPlaying).toBe(true);
+  });
+
+  it('stops when someone pauses', () => {
+    const { state } = reduce(playing(), pause(), ctx());
+    expect(state.transport.isPlaying).toBe(false);
+  });
+
+  it('starts again when someone resumes', () => {
+    const paused = reduce(playing(), pause(), ctx()).state;
+    expect(reduce(paused, resume(), ctx()).state.transport.isPlaying).toBe(true);
+  });
+
+  it('says who paused', () => {
+    const { state } = reduce(playing(), pause('Mai'), ctx(99));
+    expect(state.lastAction).toEqual({ nickname: 'Mai', did: 'paused', at: 99 });
+  });
+
+  it('starts the clock again on resume, so a long pause is not counted as time played', () => {
+    const before = playing();
+    const atPause = reduce(before, pause(), ctx(10_000)).state;
+    const resumed = reduce(atPause, resume(), ctx(310_000)).state;
+
+    // Five minutes paused. Everyone's progress bar measures from this instant,
+    // so without it they would all leap five minutes into the Track.
+    expect(resumed.transport.positionReportedAt).toBe(310_000);
+    expect(resumed.transport.positionSeconds).toBe(atPause.transport.positionSeconds);
+  });
+
+  it('does nothing when pausing what is already paused', () => {
+    const paused = reduce(playing(), pause(), ctx()).state;
+    const { state, effects } = reduce(paused, pause(), ctx());
+    expect(state).toBe(paused);
+    expect(effects).toEqual([]);
+  });
+
+  it('moves a skipped Track into History and starts the next', () => {
+    const before = playing();
+    const { state } = reduce(before, skip(before), ctx());
+
+    expect(state.nowPlaying?.song.sourceId).toBe('bbbbbbbbbbb');
+    expect(state.history.map((t) => t.song.sourceId)).toEqual(['aaaaaaaaaaa']);
+  });
+
+  it('says who skipped', () => {
+    const before = playing();
+    const { state } = reduce(before, skip(before, 'Mai'), ctx(42));
+    expect(state.lastAction).toEqual({ nickname: 'Mai', did: 'skipped', at: 42 });
+  });
+
+  it('says who started it again', () => {
+    const paused = reduce(playing(), pause(), ctx()).state;
+    const { state } = reduce(paused, resume('Mai'), ctx(12));
+    expect(state.lastAction).toEqual({ nickname: 'Mai', did: 'resumed', at: 12 });
+  });
+
+  it('leaves the Room idle and the Queue empty when the last Track is skipped', () => {
+    const before = withTracks('aaaaaaaaaaa');
+    const { state } = reduce(before, skip(before), ctx());
+
+    expect(state.nowPlaying).toBeNull();
+    expect(state.queue).toEqual([]);
+    expect(state.transport.isPlaying).toBe(false);
+    expect(state.history).toHaveLength(1);
+  });
+
+  it('ignores a skip aimed at a Track that already moved on', () => {
+    const before = playing();
+    const { state, effects } = reduce(
+      before,
+      { type: 'transport/skipped', trackId: 'a-track-that-already-ended', nickname: 'Duc' },
+      ctx()
+    );
+    expect(state).toBe(before);
+    expect(effects).toEqual([]);
+  });
+
+  it('ignores a skip when nothing is playing', () => {
+    const idle = emptyRoom();
+    const { state } = reduce(idle, { type: 'transport/skipped', trackId: 'x', nickname: 'Duc' }, ctx());
+    expect(state).toBe(idle);
+  });
+
+  it('changes the volume and says who did', () => {
+    const { state } = reduce(playing(), { type: 'transport/volume', volume: 0.4, nickname: 'Mai' }, ctx(7));
+    expect(state.transport.volume).toBe(0.4);
+    expect(state.lastAction).toEqual({ nickname: 'Mai', did: 'volume', volume: 0.4, at: 7 });
+  });
+
+  it.each([
+    [1.7, 1],
+    [-2, 0]
+  ])('keeps a volume of %s within reach', (asked, expected) => {
+    const { state } = reduce(playing(), { type: 'transport/volume', volume: asked, nickname: 'Duc' }, ctx());
+    expect(state.transport.volume).toBe(expected);
+  });
+
+  it('resumes when a Track is added to a Room that had run dry', () => {
+    const before = withTracks('aaaaaaaaaaa');
+    const drained = reduce(before, skip(before), ctx()).state;
+    expect(drained.transport.isPlaying).toBe(false);
+
+    const { state } = reduce(drained, add('ccccccccccc'), ctx());
+    expect(state.transport.isPlaying).toBe(true);
+  });
+});
+
+describe('the Player reporting where the audio has reached', () => {
+  const playing = () => withTracks('aaaaaaaaaaa');
+  const heard = (state: RoomState, positionSeconds: number): Command => ({
+    type: 'player/position',
+    trackId: state.nowPlaying?.id ?? 'nothing',
+    positionSeconds
+  });
+
+  it('records the position and when it was reported', () => {
+    const before = playing();
+    const { state } = reduce(before, heard(before, 12.5), ctx(5_000));
+    expect(state.transport.positionSeconds).toBe(12.5);
+    expect(state.transport.positionReportedAt).toBe(5_000);
+  });
+
+  it('ignores a report about a Track that has already moved on', () => {
+    const before = playing();
+    const { state, effects } = reduce(
+      before,
+      { type: 'player/position', trackId: 'an-older-track', positionSeconds: 3 },
+      ctx()
+    );
+    expect(state).toBe(before);
+    expect(effects).toEqual([]);
+  });
+
+  it('starts a new Track from the beginning', () => {
+    const before = withTracks('aaaaaaaaaaa', 'bbbbbbbbbbb');
+    const advanced = reduce(before, heard(before, 30), ctx()).state;
+    const { state } = reduce(advanced, { type: 'track/ended', trackId: advanced.nowPlaying!.id }, ctx(88));
+
+    expect(state.transport.positionSeconds).toBe(0);
+    expect(state.transport.positionReportedAt).toBe(88);
+  });
+});

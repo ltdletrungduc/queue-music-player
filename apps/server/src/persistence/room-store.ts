@@ -92,11 +92,18 @@ export function loadRoom(db: RoomStore): RoomState {
 
   const inState = (state: TrackRow['state']) => rows.filter((r) => r.state === state).map(toTrack);
 
+  const nowPlaying = inState('playing')[0] ?? null;
+  const blank = emptyRoom();
+
   return {
-    ...emptyRoom(),
+    ...blank,
     queue: inState('queued'),
-    nowPlaying: inState('playing')[0] ?? null,
-    history: inState('played')
+    nowPlaying,
+    history: inState('played'),
+    // Where the audio had reached is not written down, so a restarted Room picks
+    // its Track up from the beginning. It does pick it up, though: a Room that
+    // was playing before should not come back silent.
+    transport: { ...blank.transport, isPlaying: nowPlaying !== null }
   };
 }
 

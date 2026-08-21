@@ -30,6 +30,12 @@ const serverUrl = () => `${location.protocol}//${location.hostname}:${SERVER_POR
 export function createRoom() {
   let state = $state<RoomState>(emptyRoom());
   let connected = $state(false);
+  /**
+   * When this device heard the Player's latest position report. The Player's own
+   * clock is not this device's clock, and phones disagree by minutes, so elapsed
+   * time is measured from arrival here rather than from a timestamp made there.
+   */
+  let positionHeardAt = $state(0);
   let socket: Socket | undefined;
 
   return {
@@ -42,6 +48,15 @@ export function createRoom() {
     get controllerCount() {
       return state.controllers.length;
     },
+    get transport() {
+      return state.transport;
+    },
+    get lastAction() {
+      return state.lastAction;
+    },
+    get positionHeardAt() {
+      return positionHeardAt;
+    },
     get connected() {
       return connected;
     },
@@ -50,7 +65,12 @@ export function createRoom() {
       socket = io(serverUrl(), { query: { controllerId: controllerId(), nickname: nickname() } });
       socket.on('connect', () => (connected = true));
       socket.on('disconnect', () => (connected = false));
-      socket.on('room', (next: RoomState) => (state = next));
+      socket.on('room', (next: RoomState) => {
+        if (next.transport.positionReportedAt !== state.transport.positionReportedAt) {
+          positionHeardAt = Date.now();
+        }
+        state = next;
+      });
     },
 
     disconnect: () => socket?.disconnect(),
@@ -63,8 +83,15 @@ export function createRoom() {
     streamSrc: (track: { id: string; song: { id: string } }) =>
       `${serverUrl()}/stream/${encodeURIComponent(track.song.id)}?track=${encodeURIComponent(track.id)}`,
 
-    /** Only the Player may say this; it is the one thing that knows. */
-    reportTrackEnded: (trackId: string) => socket?.emit('track/ended', trackId)
+    /** Only the Player may say these; it is the one thing that knows. */
+    reportTrackEnded: (trackId: string) => socket?.emit('track/ended', trackId),
+    reportPosition: (trackId: string, positionSeconds: number) =>
+      socket?.emit('player/position', trackId, positionSeconds),
+
+    pause: () => socket?.emit('transport/paused'),
+    resume: () => socket?.emit('transport/resumed'),
+    skip: (trackId: string) => socket?.emit('transport/skipped', trackId),
+    setVolume: (volume: number) => socket?.emit('transport/volume', volume)
 
     ,
 

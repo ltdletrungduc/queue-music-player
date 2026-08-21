@@ -17,24 +17,48 @@
   // is armed once and then left alone for the rest of the night.
   async function start() {
     started = true;
-    await play();
+    await obeyTransport();
   }
 
-  async function play() {
-    if (!audio || !nowPlaying) return;
+  /**
+   * Pausing stops the audio element and nothing else: the relay is left open.
+   *
+   * The alternative is tearing the Stream down and re-resolving on resume, which
+   * costs a fresh round trip to the Source and throws away everything already
+   * buffered — a visible stall every time someone pauses to talk. Holding it open
+   * costs one idle socket on a machine serving one Room, which is the cheaper of
+   * the two by a wide margin.
+   */
+  async function obeyTransport() {
+    if (!started || !audio || !nowPlaying) return;
     problem = '';
     try {
-      await audio.play();
+      if (room.transport.isPlaying) await audio.play();
+      else audio.pause();
     } catch (error) {
       problem = error instanceof Error ? error.message : 'Playback was refused.';
     }
   }
 
-  // A new Track in Now Playing means a new source; the element needs telling.
+  // The Room decides what the Player does; the Player only carries it out.
   $effect(() => {
-    const trackId = nowPlaying?.id;
-    if (!started || !audio || !trackId) return;
-    void play();
+    void nowPlaying?.id;
+    void room.transport.isPlaying;
+    void obeyTransport();
+  });
+
+  $effect(() => {
+    if (audio) audio.volume = room.transport.volume;
+  });
+
+  // Nobody else can know where the audio has reached, so the Player says so
+  // every second and the Controllers run their own clocks between reports.
+  $effect(() => {
+    const id = setInterval(() => {
+      const track = nowPlaying;
+      if (track && audio && !audio.paused) room.reportPosition(track.id, audio.currentTime);
+    }, 1000);
+    return () => clearInterval(id);
   });
 </script>
 
@@ -52,11 +76,14 @@
       src={nowPlaying.song.artworkUrl}
       alt=""
       class="aspect-video w-full max-w-2xl rounded-xl object-cover shadow-2xl"
+      class:opacity-40={!room.transport.isPlaying}
     />
     <div class="text-center">
       <h1 class="text-2xl font-semibold tracking-tight">{nowPlaying.song.title}</h1>
       <p class="mt-1 text-neutral-400">{nowPlaying.song.author}</p>
-      <p class="mt-3 text-xs text-neutral-600">added by {nowPlaying.addedByNickname}</p>
+      <p class="mt-3 text-xs text-neutral-600">
+        {#if room.transport.isPlaying}added by {nowPlaying.addedByNickname}{:else}Paused{/if}
+      </p>
     </div>
   {:else}
     <p class="text-lg text-neutral-500">Queue's empty — add something from your phone.</p>

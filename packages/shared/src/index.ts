@@ -33,6 +33,30 @@ export type Controller = {
   connectedAt: number;
 };
 
+/**
+ * What the Player is doing. The Player owns this and reports it; Controllers ask
+ * for changes to it and display it.
+ */
+export type Transport = {
+  isPlaying: boolean;
+  /** The Player's own output level, between 0 and 1. Not the speaker's dial. */
+  volume: number;
+  /** How far into Now Playing the audio had reached when last reported. */
+  positionSeconds: number;
+  /** When that report was made, so a Controller can carry the clock forward itself. */
+  positionReportedAt: number;
+};
+
+/** The last thing anyone did to the Transport, so the Room can see who did it. */
+export type RoomAction = {
+  nickname: string;
+  at: number;
+} & (
+  | { did: 'paused' | 'resumed' | 'skipped' }
+  /** Carried as the number it is; how to say it is the interface's business. */
+  | { did: 'volume'; volume: number }
+);
+
 export type RoomState = {
   /** What has not played yet. Labelled "Up Next" in the interface. */
   queue: Track[];
@@ -40,6 +64,8 @@ export type RoomState = {
   nowPlaying: Track | null;
   /** What has already played, most recent first. */
   history: Track[];
+  transport: Transport;
+  lastAction: RoomAction | null;
   controllers: Controller[];
 };
 
@@ -51,5 +77,7 @@ export const emptyRoom = (): RoomState => ({
   queue: [],
   nowPlaying: null,
   history: [],
+  transport: { isPlaying: false, volume: 1, positionSeconds: 0, positionReportedAt: 0 },
+  lastAction: null,
   controllers: []
 });

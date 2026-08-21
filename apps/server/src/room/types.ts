@@ -1,12 +1,17 @@
 import type { RoomState, Song } from '@qmp/shared';
 
-export type { Controller, RoomState, Song, SourceName, Track } from '@qmp/shared';
+export type { Controller, RoomAction, RoomState, Song, SourceName, Track, Transport } from '@qmp/shared';
 
 export type Command =
   | { type: 'controller/connected'; controllerId: string; nickname: string }
   | { type: 'controller/disconnected'; controllerId: string }
   | { type: 'track/added'; song: Song; controllerId: string; nickname: string }
-  | { type: 'track/ended'; trackId: string };
+  | { type: 'track/ended'; trackId: string }
+  | { type: 'transport/paused'; nickname: string }
+  | { type: 'transport/resumed'; nickname: string }
+  | { type: 'transport/skipped'; trackId: string; nickname: string }
+  | { type: 'transport/volume'; volume: number; nickname: string }
+  | { type: 'player/position'; trackId: string; positionSeconds: number };
 
 /**
  * Work the reducer wants done but will not do itself, so that it stays pure and

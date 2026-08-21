@@ -112,6 +112,26 @@ io.on('connection', (socket) => {
     apply(room.dispatch({ type: 'track/ended', trackId }));
   });
 
+  // Likewise for where the audio has reached: only the Player can know, and a
+  // report naming a Track that has moved on would drag the progress bar backwards.
+  socket.on('player/position', (trackId: unknown, positionSeconds: unknown) => {
+    if (typeof trackId !== 'string' || typeof positionSeconds !== 'number') return;
+    apply(room.dispatch({ type: 'player/position', trackId, positionSeconds }));
+  });
+
+  socket.on('transport/paused', () => apply(room.dispatch({ type: 'transport/paused', nickname })));
+  socket.on('transport/resumed', () => apply(room.dispatch({ type: 'transport/resumed', nickname })));
+
+  socket.on('transport/skipped', (trackId: unknown) => {
+    if (typeof trackId !== 'string') return;
+    apply(room.dispatch({ type: 'transport/skipped', trackId, nickname }));
+  });
+
+  socket.on('transport/volume', (volume: unknown) => {
+    if (typeof volume !== 'number' || Number.isNaN(volume)) return;
+    apply(room.dispatch({ type: 'transport/volume', volume, nickname }));
+  });
+
   socket.on('disconnect', () => apply(room.dispatch({ type: 'controller/disconnected', controllerId })));
 });
 
