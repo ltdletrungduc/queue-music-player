@@ -150,6 +150,16 @@
     {/if}
   </header>
 
+  {#if !room.playerConnected}
+    <Alert.Root>
+      <span class="icon-[ic--round-speaker] size-4"></span>
+      <Alert.Title>Nobody's playing</Alert.Title>
+      <Alert.Description>
+        Ask whoever has the speaker. You can keep queuing in the meantime.
+      </Alert.Description>
+    </Alert.Root>
+  {/if}
+
   {#if room.nowPlaying}
     {@const track = room.nowPlaying}
     <Card.Root>
@@ -338,9 +348,23 @@
               class="h-8 w-10 shrink-0 rounded object-cover opacity-50"
             />
             <div class="min-w-0 flex-1">
-              <p class="truncate text-xs">{track.song.title}</p>
-              <p class="truncate text-[0.6875rem]">added by {track.addedByNickname}</p>
+              <p class="truncate text-xs" class:line-through={track.unplayableReason}>
+                {track.song.title}
+              </p>
+              <p class="truncate text-[0.6875rem]">
+                {#if track.unplayableReason}
+                  {track.unplayableReason}
+                {:else}
+                  added by {track.addedByNickname}
+                {/if}
+              </p>
             </div>
+            {#if track.unplayableReason}
+              <span
+                aria-hidden="true"
+                class="icon-[ic--round-error-outline] size-4 shrink-0 text-destructive"
+              ></span>
+            {/if}
           </li>
         {/each}
       </ul>

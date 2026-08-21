@@ -130,9 +130,14 @@ io.on('connection', (socket) => {
   const nickname = String(query['nickname'] ?? 'Guest');
 
   // The Player is a speaker, not a person: it does not appear in the Room.
+  // The connection's own id, so a reload cannot make its predecessor's death
+  // look like its own.
+  const connectionId = socket.id;
+
   if (role === 'controller') {
-    apply(room.dispatch({ type: 'controller/connected', controllerId, nickname }));
+    apply(room.dispatch({ type: 'controller/connected', controllerId, connectionId, nickname }));
   } else {
+    apply(room.dispatch({ type: 'player/connected', connectionId }));
     const ticket = randomBytes(24).toString('base64url');
     streamTickets.add(ticket);
     socket.on('disconnect', () => streamTickets.delete(ticket));
@@ -172,6 +177,18 @@ io.on('connection', (socket) => {
   socket.on('track/ended', (trackId: unknown) => {
     if (role !== 'player' || typeof trackId !== 'string') return;
     apply(room.dispatch({ type: 'track/ended', trackId }));
+  });
+
+  // Only the Player finds out that a Song will not open.
+  socket.on('track/failed', (trackId: unknown, reason: unknown) => {
+    if (role !== 'player' || typeof trackId !== 'string') return;
+    apply(
+      room.dispatch({
+        type: 'track/failed',
+        trackId,
+        reason: typeof reason === 'string' && reason ? reason : 'That Song would not play.'
+      })
+    );
   });
 
   // Likewise for where the audio has reached: only the Player can know, and a
@@ -220,7 +237,13 @@ io.on('connection', (socket) => {
   });
 
   socket.on('disconnect', () => {
-    if (role === 'controller') apply(room.dispatch({ type: 'controller/disconnected', controllerId }));
+    apply(
+      room.dispatch(
+        role === 'controller'
+          ? { type: 'controller/disconnected', controllerId, connectionId }
+          : { type: 'player/disconnected', connectionId }
+      )
+    );
   });
 });
 

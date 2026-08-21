@@ -70,7 +70,7 @@ describe('starting the server', () => {
   it('comes back up with nobody connected, however many were here before', () => {
     const file = tempFile();
     const before = createRoomRuntime(openRoomStore(file), clock);
-    before.dispatch({ type: 'controller/connected', controllerId: 'c1', nickname: 'Duc' });
+    before.dispatch({ type: 'controller/connected', controllerId: 'c1', connectionId: 'conn-1', nickname: 'Duc' });
     expect(before.snapshot().controllers).toHaveLength(1);
 
     const restarted = createRoomRuntime(openRoomStore(file), clock);
@@ -81,9 +81,11 @@ describe('starting the server', () => {
 describe('dispatching a Command', () => {
   it('moves the Room on and hands back what the transport must do', () => {
     const runtime = createRoomRuntime(openRoomStore(tempFile()), clock);
-    const effects = runtime.dispatch({ type: 'controller/connected', controllerId: 'c1', nickname: 'Duc' });
+    const effects = runtime.dispatch({ type: 'controller/connected', controllerId: 'c1', connectionId: 'conn-1', nickname: 'Duc' });
 
-    expect(runtime.snapshot().controllers).toEqual([{ id: 'c1', nickname: 'Duc', connectedAt: 1_000 }]);
+    expect(runtime.snapshot().controllers).toEqual([
+      { id: 'c1', nickname: 'Duc', connectionId: 'conn-1', connectedAt: 1_000 }
+    ]);
     expect(effects).toEqual([{ type: 'broadcast-snapshot' }]);
   });
 });

@@ -85,6 +85,10 @@ export function createRoom() {
     get lastAction() {
       return state.lastAction;
     },
+    /** Whether anything is attached to the speaker at all. */
+    get playerConnected() {
+      return state.playerConnections.length > 0;
+    },
     get positionHeardAt() {
       return positionHeardAt;
     },
@@ -180,6 +184,8 @@ export function createRoom() {
     reportTrackEnded: (trackId: string) => socket?.emit('track/ended', trackId),
     reportPosition: (trackId: string, positionSeconds: number) =>
       socket?.emit('player/position', trackId, positionSeconds),
+    reportTrackFailed: (trackId: string, reason: string) =>
+      socket?.emit('track/failed', trackId, reason),
 
     pause: () => socket?.emit('transport/paused'),
     resume: () => socket?.emit('transport/resumed'),

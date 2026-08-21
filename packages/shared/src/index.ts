@@ -25,11 +25,19 @@ export type Track = {
   addedByControllerId: string;
   addedByNickname: string;
   addedAt: number;
+  /** Why this Track could not be played, when it could not be. */
+  unplayableReason?: string;
 };
 
 export type Controller = {
   id: string;
   nickname: string;
+  /**
+   * Which live connection is speaking for this Controller. A reload opens a new
+   * connection before the old one is reaped, and without this the old one's
+   * departure erases the arrival that replaced it.
+   */
+  connectionId: string;
   connectedAt: number;
 };
 
@@ -45,6 +53,11 @@ export type Transport = {
   positionSeconds: number;
   /** When that report was made, so a Controller can carry the clock forward itself. */
   positionReportedAt: number;
+  /**
+   * How many times the Song in Now Playing has failed to open. Reset whenever a
+   * Track starts, so a Source having one bad moment costs a retry, not a Track.
+   */
+  failedAttempts: number;
   /**
    * When this playthrough of Now Playing began. Changes when a Track starts and
    * when one is restarted from the top, and is how the Player knows to seek —
@@ -73,6 +86,12 @@ export type RoomState = {
   transport: Transport;
   lastAction: RoomAction | null;
   controllers: Controller[];
+  /**
+   * Every connection currently attached to the speaker. Usually none or one, but
+   * held as a list so that a second Player arriving and leaving again cannot
+   * make the Room believe the first one went with it.
+   */
+  playerConnections: string[];
 };
 
 /** What came of trying to add a pasted link to the Queue. */
@@ -83,7 +102,15 @@ export const emptyRoom = (): RoomState => ({
   queue: [],
   nowPlaying: null,
   history: [],
-  transport: { isPlaying: false, volume: 1, positionSeconds: 0, positionReportedAt: 0, startedAt: 0 },
+  transport: {
+    isPlaying: false,
+    volume: 1,
+    positionSeconds: 0,
+    positionReportedAt: 0,
+    startedAt: 0,
+    failedAttempts: 0
+  },
   lastAction: null,
-  controllers: []
+  controllers: [],
+  playerConnections: []
 });

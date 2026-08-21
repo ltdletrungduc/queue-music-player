@@ -44,35 +44,47 @@
     }
   }
 
-  // The Room decides what the Player does; the Player only carries it out.
-  $effect(() => {
-    void nowPlaying?.id;
-    void room.transport.isPlaying;
-    void obeyTransport();
-  });
-
-  $effect(() => {
-    if (audio) audio.volume = room.transport.volume;
-  });
-
-  // Restarting a Track changes nothing an audio element would notice on its own
-  // — same Track, same source — so the Room says when a playthrough began and the
-  // Player moves the needle to where the Room says it should be.
-  //
-  // Only the beginning of a *new* playthrough may move it. Every snapshot
-  // replaces the Room wholesale, so this runs once a second whether or not
-  // anything changed; seeking each time would drag the audio backwards to the
-  // Player's own last report, for ever.
-  let seekedTo = -1;
+  /**
+   * A playthrough is one attempt at one Track. The Room starts a new one when a
+   * Track begins, when someone rewinds, and when a Track failed and deserves
+   * another go — all of which show up as `startedAt` moving.
+   *
+   * Every new playthrough is loaded from scratch. That is what makes the retry
+   * real: after a failure the element is stuck in an error state and will not
+   * fetch anything again until it is told to, so without this the Room would
+   * wait for a second failure that could never arrive.
+   */
+  let playthrough = -1;
   $effect(() => {
     const startedAt = room.transport.startedAt;
-    // Recording the seek before doing it would lose it entirely on the run where
-    // the element is not mounted yet, and nothing would try again.
-    if (!audio || startedAt === seekedTo) return;
-    seekedTo = startedAt;
+    const track = nowPlaying;
+    const element = audio;
+    if (!started || !element || !track || startedAt === playthrough) return;
+    playthrough = startedAt;
+
     untrack(() => {
-      if (audio) audio.currentTime = room.transport.positionSeconds;
+      element.load();
+      // Where the Room says the audio is, which after a drop is where it was
+      // when the Player last managed to say so.
+      if (room.transport.positionSeconds > 0) element.currentTime = room.transport.positionSeconds;
+      void obeyTransport();
     });
+  });
+
+  /**
+   * Coming back from a dropped connection changes nothing about the Room — same
+   * Track, still wanted — so nothing above would fire, and the Player would sit
+   * holding a stream that died. Forgetting the playthrough makes it start over.
+   */
+  $effect(() => {
+    if (!room.connected) playthrough = -1;
+  });
+
+  // Pausing and resuming do not restart anything; they only stop and start what
+  // is already loaded.
+  $effect(() => {
+    void room.transport.isPlaying;
+    void obeyTransport();
   });
 
   // Nobody else can know where the audio has reached, so the Player says so
@@ -147,7 +159,11 @@
     bind:this={audio}
     src={nowPlaying ? room.streamSrc(nowPlaying) : undefined}
     onended={() => nowPlaying && room.reportTrackEnded(nowPlaying.id)}
-    onerror={() => (problem = 'That Song would not play.')}
+    onerror={() => {
+      problem = 'That Song would not play.';
+      // The Room decides what to do about it: one more go, then give up on it.
+      if (nowPlaying) room.reportTrackFailed(nowPlaying.id, problem);
+    }}
   ></audio>
 </main>
 {/if}

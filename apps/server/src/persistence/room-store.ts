@@ -29,15 +29,38 @@ CREATE TABLE IF NOT EXISTS tracks (
   played_rank            INTEGER,
   added_by_controller_id TEXT NOT NULL,
   added_by_nickname      TEXT NOT NULL,
-  added_at               INTEGER NOT NULL
+  added_at               INTEGER NOT NULL,
+  unplayable_reason      TEXT,
+  /* How far into this Track the audio had reached. Only ever set on the one playing. */
+  position_seconds       REAL NOT NULL DEFAULT 0
 );
 `;
+
+/**
+ * Columns added after a Room already existed. `CREATE TABLE IF NOT EXISTS` will
+ * not add them to a table that is already there, so a Room from an earlier
+ * version would otherwise fail on the first write rather than at startup.
+ */
+function addMissingColumns(db: RoomStore): void {
+  const columns = db
+    .prepare<[string], { name: string }>('SELECT name FROM pragma_table_info(?)')
+    .all('tracks')
+    .map((row) => row.name);
+
+  if (!columns.includes('unplayable_reason')) {
+    db.exec('ALTER TABLE tracks ADD COLUMN unplayable_reason TEXT');
+  }
+  if (!columns.includes('position_seconds')) {
+    db.exec('ALTER TABLE tracks ADD COLUMN position_seconds REAL NOT NULL DEFAULT 0');
+  }
+}
 
 export function openRoomStore(file: string): RoomStore {
   const db = new Database(file);
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   db.exec(SCHEMA);
+  addMissingColumns(db);
   return db;
 }
 
@@ -48,6 +71,8 @@ type TrackRow = {
   added_by_controller_id: string;
   added_by_nickname: string;
   added_at: number;
+  unplayable_reason: string | null;
+  position_seconds: number;
   song_id: string;
   source: string;
   source_id: string;
@@ -63,6 +88,7 @@ const toTrack = (r: TrackRow): Track => ({
   addedByControllerId: r.added_by_controller_id,
   addedByNickname: r.added_by_nickname,
   addedAt: r.added_at,
+  ...(r.unplayable_reason === null ? {} : { unplayableReason: r.unplayable_reason }),
   song: {
     id: r.song_id,
     source: r.source as SourceName,
@@ -82,6 +108,7 @@ export function loadRoom(db: RoomStore): RoomState {
   const rows = db
     .prepare<[], TrackRow>(
       `SELECT t.id, t.state, t.order_key, t.added_by_controller_id, t.added_by_nickname, t.added_at,
+              t.unplayable_reason, t.position_seconds,
               s.id AS song_id, s.source, s.source_id, s.title, s.author,
               s.duration_seconds, s.artwork_url
          FROM tracks t
@@ -100,10 +127,13 @@ export function loadRoom(db: RoomStore): RoomState {
     queue: inState('queued'),
     nowPlaying,
     history: inState('played'),
-    // Where the audio had reached is not written down, so a restarted Room picks
-    // its Track up from the beginning. It does pick it up, though: a Room that
-    // was playing before should not come back silent.
-    transport: { ...blank.transport, isPlaying: nowPlaying !== null }
+    // A Room that was playing comes back playing, and picks the Track up where
+    // it left off rather than at the beginning.
+    transport: {
+      ...blank.transport,
+      isPlaying: nowPlaying !== null,
+      positionSeconds: rows.find((r) => r.state === 'playing')?.position_seconds ?? 0
+    }
   };
 }
 
@@ -117,12 +147,19 @@ export function saveRoom(db: RoomStore, state: RoomState): void {
   );
   const insertTrack = db.prepare(
     `INSERT INTO tracks
-       (id, song_id, state, order_key, played_rank, added_by_controller_id, added_by_nickname, added_at)
-     VALUES (@id, @songId, @state, @orderKey, @playedRank, @addedByControllerId, @addedByNickname, @addedAt)`
+       (id, song_id, state, order_key, played_rank, added_by_controller_id, added_by_nickname,
+      added_at, unplayable_reason, position_seconds)
+     VALUES (@id, @songId, @state, @orderKey, @playedRank, @addedByControllerId, @addedByNickname,
+             @addedAt, @unplayableReason, @positionSeconds)`
   );
   const clearTracks = db.prepare('DELETE FROM tracks');
 
-  const write = (track: Track, trackState: TrackRow['state'], playedRank: number | null) => {
+  const write = (
+    track: Track,
+    trackState: TrackRow['state'],
+    playedRank: number | null,
+    positionSeconds = 0
+  ) => {
     upsertSong.run(track.song);
     insertTrack.run({
       id: track.id,
@@ -132,7 +169,9 @@ export function saveRoom(db: RoomStore, state: RoomState): void {
       playedRank,
       addedByControllerId: track.addedByControllerId,
       addedByNickname: track.addedByNickname,
-      addedAt: track.addedAt
+      addedAt: track.addedAt,
+      unplayableReason: track.unplayableReason ?? null,
+      positionSeconds
     });
   };
 
@@ -141,7 +180,7 @@ export function saveRoom(db: RoomStore, state: RoomState): void {
     // History is ordered most recent first, which no natural column recovers,
     // so its position is written down rather than derived.
     state.history.forEach((track, rank) => write(track, 'played', rank));
-    if (state.nowPlaying) write(state.nowPlaying, 'playing', null);
+    if (state.nowPlaying) write(state.nowPlaying, 'playing', null, state.transport.positionSeconds);
     for (const track of state.queue) write(track, 'queued', null);
   })();
 }

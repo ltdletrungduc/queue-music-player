@@ -40,12 +40,13 @@ describe('a Controller connecting', () => {
   const connect = (controllerId: string, nickname = 'Duc'): Command => ({
     type: 'controller/connected',
     controllerId,
+    connectionId: `conn-${controllerId}`,
     nickname
   });
 
   it('appears in the Room under their Nickname', () => {
     const { state } = reduce(emptyRoom(), connect('c1'), ctx());
-    expect(state.controllers).toEqual([{ id: 'c1', nickname: 'Duc', connectedAt: 1_000 }]);
+    expect(state.controllers).toEqual([{ id: 'c1', nickname: 'Duc', connectionId: 'conn-c1', connectedAt: 1_000 }]);
   });
 
   it('causes everyone to be told the new state', () => {
@@ -61,7 +62,9 @@ describe('a Controller connecting', () => {
   it('does not appear twice when the same device reconnects', () => {
     const first = reduce(emptyRoom(), connect('c1'), ctx(1));
     const second = reduce(first.state, connect('c1', 'Duc again'), ctx(2));
-    expect(second.state.controllers).toEqual([{ id: 'c1', nickname: 'Duc again', connectedAt: 2 }]);
+    expect(second.state.controllers).toEqual([
+      { id: 'c1', nickname: 'Duc again', connectionId: 'conn-c1', connectedAt: 2 }
+    ]);
   });
 
   it('leaves the Queue alone', () => {
@@ -72,12 +75,16 @@ describe('a Controller connecting', () => {
 });
 
 describe('a Controller disconnecting', () => {
-  const disconnect = (controllerId: string): Command => ({ type: 'controller/disconnected', controllerId });
+  const disconnect = (controllerId: string): Command => ({
+    type: 'controller/disconnected',
+    controllerId,
+    connectionId: `conn-${controllerId}`
+  });
 
   it('leaves the Room', () => {
     const two = reduce(
-      reduce(emptyRoom(), { type: 'controller/connected', controllerId: 'c1', nickname: 'Duc' }, ctx()).state,
-      { type: 'controller/connected', controllerId: 'c2', nickname: 'Mai' },
+      reduce(emptyRoom(), { type: 'controller/connected', controllerId: 'c1', connectionId: 'conn-c1', nickname: 'Duc' }, ctx()).state,
+      { type: 'controller/connected', controllerId: 'c2', connectionId: 'conn-c2', nickname: 'Mai' },
       ctx()
     ).state;
     const { state } = reduce(two, disconnect('c1'), ctx());
@@ -658,5 +665,173 @@ describe('shaping the Queue', () => {
     const before = queued();
     const { effects } = reduce(before, move(before, 'ccccccccccc', null), ctx());
     expect(effects).toEqual([{ type: 'broadcast-snapshot' }]);
+  });
+});
+
+describe('a Track that will not play', () => {
+  const playing = () => withTracks('aaaaaaaaaaa', 'bbbbbbbbbbb');
+  const failed = (state: RoomState, reason = 'Could not open that Song.'): Command => ({
+    type: 'track/failed',
+    trackId: state.nowPlaying?.id ?? 'nothing',
+    reason
+  });
+
+  it('tries once more before giving up on it', () => {
+    const before = playing();
+    const { state } = reduce(before, failed(before), ctx(500));
+
+    expect(state.nowPlaying?.song.sourceId).toBe('aaaaaaaaaaa');
+    expect(state.transport.failedAttempts).toBe(1);
+    // A fresh playthrough, so the Player has something to act on rather than
+    // sitting on a source it has already given up on.
+    expect(state.transport.startedAt).toBe(500);
+    expect(state.transport.positionSeconds).toBe(0);
+  });
+
+  it('gives up on the second failure and moves on', () => {
+    const before = playing();
+    const once = reduce(before, failed(before), ctx()).state;
+    const { state } = reduce(once, failed(once, 'Still nothing.'), ctx());
+
+    expect(state.nowPlaying?.song.sourceId).toBe('bbbbbbbbbbb');
+    expect(state.transport.failedAttempts).toBe(0);
+  });
+
+  it('keeps the Track it gave up on, with the reason', () => {
+    const before = playing();
+    const once = reduce(before, failed(before), ctx()).state;
+    const { state } = reduce(once, failed(once, 'That video is private.'), ctx());
+
+    const abandoned = state.history[0];
+    expect(abandoned?.song.sourceId).toBe('aaaaaaaaaaa');
+    expect(abandoned?.unplayableReason).toBe('That video is private.');
+  });
+
+  it('leaves a Track that played properly unmarked', () => {
+    const before = playing();
+    const { state } = reduce(before, { type: 'track/ended', trackId: before.nowPlaying!.id }, ctx());
+    expect(state.history[0]?.unplayableReason).toBeUndefined();
+  });
+
+  it('forgets earlier failures once a Track is playing', () => {
+    const before = playing();
+    const once = reduce(before, failed(before), ctx()).state;
+    const { state } = reduce(once, { type: 'track/ended', trackId: once.nowPlaying!.id }, ctx());
+    expect(state.transport.failedAttempts).toBe(0);
+  });
+
+  it('goes idle when the Track it gave up on was the last one', () => {
+    const one = withTracks('aaaaaaaaaaa');
+    const once = reduce(one, failed(one), ctx()).state;
+    const { state } = reduce(once, failed(once), ctx());
+
+    expect(state.nowPlaying).toBeNull();
+    expect(state.transport.isPlaying).toBe(false);
+    expect(state.history[0]?.unplayableReason).toBeDefined();
+  });
+
+  it('ignores a failure about a Track that already moved on', () => {
+    const before = playing();
+    const { state, effects } = reduce(
+      before,
+      { type: 'track/failed', trackId: 'an-older-track', reason: 'nope' },
+      ctx()
+    );
+    expect(state).toBe(before);
+    expect(effects).toEqual([]);
+  });
+});
+
+describe('whether anything is attached to the speaker', () => {
+  const connected = (connectionId = 'p1'): Command => ({ type: 'player/connected', connectionId });
+  const gone = (connectionId = 'p1'): Command => ({ type: 'player/disconnected', connectionId });
+
+  it('starts with nothing attached', () => {
+    expect(emptyRoom().playerConnections).toEqual([]);
+  });
+
+  it('knows when the speaker arrives and leaves', () => {
+    const here = reduce(emptyRoom(), connected(), ctx()).state;
+    expect(here.playerConnections).toEqual(['p1']);
+    expect(reduce(here, gone(), ctx()).state.playerConnections).toEqual([]);
+  });
+
+  it('keeps wanting to play while the speaker is away, so it picks up on return', () => {
+    const room = reduce(withTracks('aaaaaaaaaaa'), connected(), ctx()).state;
+    const without = reduce(room, gone(), ctx()).state;
+
+    // The Transport is what the Room wants, not what is audible. Forgetting the
+    // wish is what left a reconnecting Player sitting silent.
+    expect(without.transport.isPlaying).toBe(true);
+    expect(without.playerConnections).toEqual([]);
+  });
+
+  it('leaves the Queue alone when the speaker goes away', () => {
+    const room = reduce(withTracks('aaaaaaaaaaa', 'bbbbbbbbbbb'), connected(), ctx()).state;
+    const { state } = reduce(room, gone(), ctx());
+    expect(state.queue.map((t) => t.song.sourceId)).toEqual(['bbbbbbbbbbb']);
+    expect(state.nowPlaying?.song.sourceId).toBe('aaaaaaaaaaa');
+  });
+
+  it('ignores a departure from a connection that is no longer the speaker', () => {
+    const first = reduce(emptyRoom(), connected('p1'), ctx()).state;
+    const second = reduce(first, connected('p2'), ctx()).state;
+    const { state } = reduce(second, gone('p1'), ctx());
+
+    // The old connection dying after the new one arrived must not silence a
+    // speaker that is plainly attached.
+    expect(state.playerConnections).toEqual(['p2']);
+  });
+
+  it('is still attached when a second speaker comes and goes', () => {
+    const first = reduce(emptyRoom(), connected('p1'), ctx()).state;
+    const both = reduce(first, connected('p2'), ctx()).state;
+    const { state } = reduce(both, gone('p2'), ctx());
+
+    expect(state.playerConnections).toEqual(['p1']);
+  });
+});
+
+describe('a Controller whose connection is replaced', () => {
+  const connect = (connectionId: string, controllerId = 'c1'): Command => ({
+    type: 'controller/connected',
+    controllerId,
+    connectionId,
+    nickname: 'Duc'
+  });
+  const drop = (connectionId: string, controllerId = 'c1'): Command => ({
+    type: 'controller/disconnected',
+    controllerId,
+    connectionId
+  });
+
+  it('is still here when the connection it replaced finally dies', () => {
+    // A reload opens the new connection before the old one is reaped.
+    const first = reduce(emptyRoom(), connect('conn-1'), ctx()).state;
+    const reloaded = reduce(first, connect('conn-2'), ctx()).state;
+    const { state } = reduce(reloaded, drop('conn-1'), ctx());
+
+    expect(state.controllers.map((c) => c.id)).toEqual(['c1']);
+  });
+
+  it('leaves when the connection that is actually theirs dies', () => {
+    const here = reduce(emptyRoom(), connect('conn-1'), ctx()).state;
+    const { state } = reduce(here, drop('conn-1'), ctx());
+    expect(state.controllers).toEqual([]);
+  });
+});
+
+describe('a Track that gets another go', () => {
+  it('is not still struck through when it comes back round', () => {
+    const before = withTracks('aaaaaaaaaaa', 'bbbbbbbbbbb');
+    const failedOnce = reduce(before, { type: 'track/failed', trackId: before.nowPlaying!.id, reason: 'x' }, ctx()).state;
+    const givenUp = reduce(failedOnce, { type: 'track/failed', trackId: failedOnce.nowPlaying!.id, reason: 'x' }, ctx()).state;
+
+    expect(givenUp.history[0]?.unplayableReason).toBe('x');
+
+    // Previous brings it back: it is a Track again, not a failure.
+    const back = reduce(givenUp, { type: 'transport/previous', trackId: givenUp.nowPlaying!.id, nickname: 'Duc' }, ctx()).state;
+    expect(back.nowPlaying?.song.sourceId).toBe('aaaaaaaaaaa');
+    expect(back.nowPlaying?.unplayableReason).toBeUndefined();
   });
 });

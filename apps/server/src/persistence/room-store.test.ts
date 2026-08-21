@@ -78,7 +78,7 @@ describe('a Room store', () => {
     saveRoom(store, {
       ...emptyRoom(),
       queue: [track('t1', 'a0')],
-      controllers: [{ id: 'c1', nickname: 'Duc', connectedAt: 1 }]
+      controllers: [{ id: 'c1', nickname: 'Duc', connectionId: 'conn-1', connectedAt: 1 }]
     });
     expect(loadRoom(store).controllers).toEqual([]);
   });
@@ -110,14 +110,57 @@ describe('a Room store', () => {
     expect(loadRoom(store).transport.isPlaying).toBe(false);
   });
 
-  it('starts a restarted Track from the beginning rather than guessing', () => {
+  it('picks a restarted Track up where it left off', () => {
     const store = openRoomStore(tempFile());
     saveRoom(store, {
       ...emptyRoom(),
       nowPlaying: track('playing', 'a1'),
-      transport: { isPlaying: true, volume: 0.5, positionSeconds: 91, positionReportedAt: 1234, startedAt: 1000 }
+      transport: {
+        isPlaying: true,
+        volume: 0.5,
+        positionSeconds: 91,
+        positionReportedAt: 1234,
+        startedAt: 1000,
+        failedAttempts: 0
+      }
+    });
+    expect(loadRoom(store).transport.positionSeconds).toBe(91);
+  });
+
+  it('does not carry a position over to a Track that was only waiting', () => {
+    const store = openRoomStore(tempFile());
+    saveRoom(store, {
+      ...emptyRoom(),
+      queue: [track('waiting', 'a1')],
+      transport: { ...emptyRoom().transport, positionSeconds: 91 }
     });
     expect(loadRoom(store).transport.positionSeconds).toBe(0);
+  });
+
+  it('remembers why a Track could not be played', () => {
+    const store = openRoomStore(tempFile());
+    const broken = { ...track('bad', 'a0'), unplayableReason: 'That video is private.' };
+    saveRoom(store, { ...emptyRoom(), history: [broken] });
+    expect(loadRoom(store).history[0]?.unplayableReason).toBe('That video is private.');
+  });
+
+  it('leaves a Track that played properly unmarked', () => {
+    const store = openRoomStore(tempFile());
+    saveRoom(store, { ...emptyRoom(), history: [track('fine', 'a0')] });
+    expect(loadRoom(store).history[0]?.unplayableReason).toBeUndefined();
+  });
+
+  it('opens a Room saved before that column existed', () => {
+    const file = tempFile();
+    const first = openRoomStore(file);
+    // Pretend this Room predates the column, as a real one would.
+    first.exec('ALTER TABLE tracks DROP COLUMN unplayable_reason');
+    first.exec('ALTER TABLE tracks DROP COLUMN position_seconds');
+    first.close();
+
+    const reopened = openRoomStore(file);
+    expect(() => saveRoom(reopened, { ...emptyRoom(), history: [track('t1', 'a0')] })).not.toThrow();
+    expect(loadRoom(reopened).history[0]?.id).toBe('t1');
   });
 
   it('keeps History most recent first across a restart', () => {

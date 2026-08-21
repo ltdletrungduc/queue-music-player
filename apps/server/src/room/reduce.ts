@@ -13,15 +13,24 @@ const broadcast = (state: RoomState): Reduced => ({ state, effects: [{ type: 'br
  * A Track arriving in Now Playing always plays: whatever the Room was doing
  * before, someone wanting this Track next is the more recent wish.
  */
+/** A Track getting another go starts without the last attempt's verdict on it. */
+const afresh = (track: Track): Track => {
+  const { unplayableReason: _, ...rest } = track;
+  return rest;
+};
+
 function startNextOrGoIdle(state: RoomState, now: number): RoomState {
   if (state.nowPlaying !== null) return state;
-  const [next, ...rest] = state.queue;
+  const [head, ...rest] = state.queue;
+  const next = head === undefined ? undefined : afresh(head);
   if (!next) {
-    return state.transport.isPlaying
-      ? { ...state, transport: { ...state.transport, isPlaying: false } }
+    return state.transport.isPlaying || state.transport.failedAttempts > 0
+      ? { ...state, transport: { ...state.transport, isPlaying: false, failedAttempts: 0 } }
       : state;
   }
 
+  // A new Track starts owing nothing to the one before it, including whatever
+  // trouble that one had opening.
   return {
     ...state,
     nowPlaying: next,
@@ -31,7 +40,8 @@ function startNextOrGoIdle(state: RoomState, now: number): RoomState {
       isPlaying: true,
       positionSeconds: 0,
       positionReportedAt: now,
-      startedAt: now
+      startedAt: now,
+      failedAttempts: 0
     }
   };
 }
@@ -76,7 +86,8 @@ const fromTheTop = (state: RoomState, now: number): RoomState => ({
     isPlaying: true,
     positionSeconds: 0,
     positionReportedAt: now,
-    startedAt: now
+    startedAt: now,
+    failedAttempts: 0
   }
 });
 
@@ -121,9 +132,12 @@ function goBack(state: RoomState, now: number): RoomState {
   return fromTheTop(
     {
       ...state,
-      nowPlaying: wentBefore,
+      nowPlaying: afresh(wentBefore),
       history: older,
-      queue: [{ ...leaving, orderKey: generateKeyBetween(null, firstWaiting) }, ...state.queue]
+      queue: [
+        { ...afresh(leaving), orderKey: generateKeyBetween(null, firstWaiting) },
+        ...state.queue
+      ]
     },
     now
   );
@@ -137,17 +151,73 @@ export function reduce(state: RoomState, command: Command, ctx: Ctx): Reduced {
         ...state,
         controllers: [
           ...others,
-          { id: command.controllerId, nickname: command.nickname, connectedAt: ctx.now }
+          {
+            id: command.controllerId,
+            nickname: command.nickname,
+            connectionId: command.connectionId,
+            connectedAt: ctx.now
+          }
         ]
       });
     }
 
     case 'controller/disconnected': {
-      if (!state.controllers.some((c) => c.id === command.controllerId)) return unchanged(state);
+      // A reload opens the new connection before the old one is reaped, so a
+      // departure only counts if it comes from the connection currently
+      // speaking for this Controller. Otherwise the old one erases its own
+      // replacement and the phone vanishes from a Room it is sitting in.
+      const present = state.controllers.find((c) => c.id === command.controllerId);
+      if (present?.connectionId !== command.connectionId) return unchanged(state);
       return broadcast({
         ...state,
         controllers: state.controllers.filter((c) => c.id !== command.controllerId)
       });
+    }
+
+    case 'player/connected': {
+      if (state.playerConnections.includes(command.connectionId)) return unchanged(state);
+      return broadcast({
+        ...state,
+        playerConnections: [...state.playerConnections, command.connectionId]
+      });
+    }
+
+    case 'player/disconnected': {
+      if (!state.playerConnections.includes(command.connectionId)) return unchanged(state);
+      // The Transport is what the Room wants, not what is currently audible.
+      // Leaving it alone is what lets a Player that drops and comes back pick
+      // the Track up rather than finding the Room paused behind it.
+      return broadcast({
+        ...state,
+        playerConnections: state.playerConnections.filter((id) => id !== command.connectionId)
+      });
+    }
+
+    case 'track/failed': {
+      if (state.nowPlaying?.id !== command.trackId) return unchanged(state);
+
+      // A Source has bad moments. One retry costs a second; giving up at once
+      // costs someone their Track.
+      if (state.transport.failedAttempts === 0) {
+        return broadcast({
+          ...state,
+          transport: {
+            ...state.transport,
+            failedAttempts: 1,
+            positionSeconds: 0,
+            positionReportedAt: ctx.now,
+            startedAt: ctx.now
+          }
+        });
+      }
+
+      const abandoned = { ...state.nowPlaying, unplayableReason: command.reason };
+      return broadcast(
+        startNextOrGoIdle(
+          { ...state, nowPlaying: null, history: [abandoned, ...state.history] },
+          ctx.now
+        )
+      );
     }
 
     case 'track/added': {

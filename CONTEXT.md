@@ -21,8 +21,9 @@ _Avoid_: Password, invite, token, PIN
 
 **Player**:
 The single device that holds the audio output — the laptop or phone paired to the
-speaker. It is the only thing in the system that makes sound, and only one exists
-at a time.
+speaker. It is the only thing in the system that makes sound. A Room with no
+Player is silent, but otherwise unchanged: the Queue is still shaped, and the
+Transport still says what the Room wants, waiting for something to carry it out.
 _Avoid_: Host, DJ, master, sink, output device
 
 **Controller**:
@@ -80,10 +81,18 @@ where it sits in the order. A Track is where a Song appears; it is never the
 Song itself.
 _Avoid_: Item, entry, media
 
+**Unplayable**:
+What a Track becomes when the Player could not open its Song twice running. It
+keeps its place in History rather than disappearing, and says why, so whoever
+added it can see what happened. Giving a Track another go clears the mark: it is
+a verdict on one attempt, not on the Track.
+_Avoid_: Broken, failed, dead, invalid
+
 **Transport**:
-The Room's playback state — what is in Now Playing, whether it is playing or
-paused, and how far in. The Player owns it and reports it; Controllers request
-changes to it and display it.
+What the Room wants played — which Track, whether it should be sounding, and how
+far in. It says what the Room intends, not what is currently audible: with no
+Player attached the Transport is unchanged and nothing is heard. The Player
+reports the position; Controllers request changes and display it.
 _Avoid_: Player state, playback state, controls
 
 ### Where audio comes from
