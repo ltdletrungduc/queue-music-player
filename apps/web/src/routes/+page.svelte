@@ -51,6 +51,24 @@
   const sameOrder = (a: Track[], b: Track[]) =>
     a.length === b.length && a.every((track, i) => track.id === b[i]?.id);
 
+  /**
+   * The drag library's list, with any Track that appears twice kept only once.
+   *
+   * While a drop settles it can hand back a list carrying the same Track in two
+   * places for a frame. The Room never does — its Queue is unique by
+   * construction — but the list on screen is keyed by Track, and a keyed each
+   * block throws on a duplicate key instead of rendering, which takes the whole
+   * Queue down over a frame that was about to be replaced anyway.
+   */
+  function onlyOnce(tracks: Track[]): Track[] {
+    const seen = new Set<string>();
+    return tracks.filter((track) => {
+      if (seen.has(track.id)) return false;
+      seen.add(track.id);
+      return true;
+    });
+  }
+
   $effect(() => {
     const queue = room.queue;
     if (ownOrder && sameOrder(ownOrder, queue)) ownOrder = null;
@@ -75,12 +93,12 @@
   const HOLD_TO_DRAG_MS = 200;
 
   function considering(event: CustomEvent<DndEvent<Track>>) {
-    ownOrder = event.detail.items;
+    ownOrder = onlyOnce(event.detail.items);
     clearTimeout(ownOrderTimer);
   }
 
   function dropped(event: CustomEvent<DndEvent<Track>>) {
-    const dropOrder = event.detail.items;
+    const dropOrder = onlyOnce(event.detail.items);
     ownOrder = dropOrder;
     releaseTheListShortly();
 
