@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createInnertube, innertubeLookup, innertubeStream } from './innertube.js';
 import { createYouTubeProvider } from './youtube.js';
+import type { SourceProvider } from './types.js';
 
 /**
  * Checks the real YouTube still behaves the way the fake claims. Excluded from
@@ -27,27 +28,54 @@ describe('YouTube, for real', () => {
     expect(result.song.artworkUrl).toMatch(/^https:\/\//);
   }, 30_000);
 
-  it('opens a Stream that ends by itself', async () => {
-    const provider = await realProvider();
-    const validated = await provider.validate('https://www.youtube.com/watch?v=jNQXAC9IVRw');
-    expect(validated.ok).toBe(true);
-    if (!validated.ok) return;
-
-    const stream = await provider.resolve(validated.song);
-    expect(stream.contentType).toMatch(/^audio\//);
-
-    // The Stream closing on its own is the point: SABR keeps asking for segments
-    // long after the audio has all arrived, and a Stream that never ends means a
-    // Track that never finishes.
+  /**
+   * Reads a Stream to its end, keeping none of it. The count is the point: a
+   * Song that stopped short is the failure this Source exists to have fixed.
+   */
+  const play = async (stream: Awaited<ReturnType<SourceProvider['resolve']>>) => {
     const reader = stream.body.getReader();
     let bytes = 0;
     for (;;) {
       const { done, value } = await reader.read();
-      if (done) break;
+      if (done) return bytes;
       bytes += value.length;
     }
-    expect(bytes).toBeGreaterThan(100_000);
-  }, 60_000);
+  };
+
+  /**
+   * Audio is roughly a constant number of bytes a second, so a Song's length
+   * says about how many to expect. Well under the thinnest format YouTube
+   * offers, so falling below it means the Song stopped short rather than that
+   * it was encoded small.
+   */
+  const enoughBytesFor = (durationSeconds: number) => durationSeconds * 8_000;
+
+  const streamOf = async (url: string) => {
+    const provider = await realProvider();
+    const validated = await provider.validate(url);
+    expect(validated.ok).toBe(true);
+    if (!validated.ok) throw new Error(validated.reason);
+    return { stream: await provider.resolve(validated.song), song: validated.song };
+  };
+
+  /**
+   * Several Songs, and long ones, because the failure this replaced only showed
+   * itself a couple of minutes in — anything shorter passed while the Extractor
+   * was thoroughly broken.
+   */
+  it.each([
+    ['a short one', 'jNQXAC9IVRw'],
+    ['a song', 'dQw4w9WgXcQ'],
+    ['an hour and a bit', 'zoK1swTBKXc']
+  ])('plays %s from beginning to end', async (_, videoId) => {
+    const { stream, song } = await streamOf(`https://www.youtube.com/watch?v=${videoId}`);
+    expect(stream.contentType).toMatch(/^audio\//);
+
+    // Reading to the end without throwing is half the claim; the other half is
+    // that what arrived is the whole Song.
+    const bytes = await play(stream);
+    expect(bytes).toBeGreaterThan(enoughBytesFor(song.durationSeconds));
+  }, 300_000);
 
   it('refuses a video that does not exist', async () => {
     const provider = await realProvider();

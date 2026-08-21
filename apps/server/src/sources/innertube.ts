@@ -1,10 +1,38 @@
 import vm from 'node:vm';
 import { Innertube, Misc, Platform } from 'youtubei.js';
-import { SabrStream } from 'googlevideo/sabr-stream';
-import type { SabrFormat } from 'googlevideo/shared-types';
 import type { SongLookup, StreamLookup } from './youtube.js';
 
 const EVAL_DEADLINE_MS = 5_000;
+
+/**
+ * The client whose player response still carries a URL per format.
+ *
+ * The web client's does not: it offers a single SABR endpoint, and SABR now
+ * answers every request with `attestation pending` and stops sending audio a
+ * couple of minutes in, whatever the video. See ADR-0002.
+ */
+const CLIENT_WITH_URLS = 'VISIONOS' as const;
+
+/**
+ * How much audio one request asks for.
+ *
+ * The size barely matters; asking for a range at all is the point, because
+ * YouTube paces a single open-ended GET at roughly twice real time and does not
+ * pace ranged requests at all. See ADR-0002.
+ */
+const RANGE_BYTES = 1 << 20;
+
+/** Roughly what a good stereo stream costs, and plenty for a speaker in a room. */
+const ABOUT_RIGHT_BITRATE = 128_000;
+
+/**
+ * How many times a range is re-asked for before the Song is called lost.
+ *
+ * An hour of audio is a long time for a connection to stay perfect, and a blip
+ * costs one request to recover from. Giving up instead costs the Room the whole
+ * Track, which restarts from the beginning.
+ */
+const RESUME_ATTEMPTS = 3;
 
 /**
  * Runs YouTube's player script, which has to happen to decipher the streaming
@@ -77,141 +105,136 @@ export function innertubeLookup(youtube: Innertube): SongLookup {
 }
 
 /**
- * SABR delivers every byte of the audio and then keeps asking for more, retrying
- * for the best part of a minute before giving up. Left alone it never closes the
- * stream, so the Player's audio element waits forever a second from the end and
- * never reports the Track as finished.
- *
- * The chosen format says how many bytes the audio is, so that is the end.
+ * Opens one range of the audio. Separated out so the reading of it can be
+ * tested without a network.
  */
-export function endWhenTheAudioRunsOut(
-  source: ReadableStream<Uint8Array>,
-  expectedBytes: number | undefined,
-  abortStream: () => void
-): ReadableStream<Uint8Array> {
-  const reader = source.getReader();
-  let delivered = 0;
-  let finished = false;
+export type RangeLookup = (start: number, end: number) => Promise<ReadableStream<Uint8Array>>;
 
-  const finish = (controller: ReadableStreamDefaultController<Uint8Array>) => {
-    if (finished) return;
-    finished = true;
-    controller.close();
-    // SABR must be told to stop through its own abort, not by cancelling the
-    // reader underneath it: it keeps retrying either way, and on giving up it
-    // closes a stream it does not know is already closed, which throws out of a
-    // timer and takes the process with it.
-    abortStream();
-    void reader.cancel().catch(() => {});
-  };
+/**
+ * Reads the whole audio as one Stream, a range at a time.
+ *
+ * Ranges are asked for one after another rather than all at once: the Player
+ * consumes at the speed of the music, and pulling an hour of audio ahead of it
+ * would spend an hour of somebody's bandwidth on a Song that may be skipped in
+ * ten seconds.
+ *
+ * The length the format promised is what says the audio is complete, and the
+ * Stream ends only on reaching it.
+ */
+export function streamInRanges(
+  openRange: RangeLookup,
+  totalBytes: number,
+  rangeBytes: number = RANGE_BYTES
+): ReadableStream<Uint8Array> {
+  let delivered = 0;
+  let rangeEnd = -1;
+  let current: ReadableStreamDefaultReader<Uint8Array> | undefined;
+  let cancelled = false;
+  /** Attempts since the last byte arrived, so a Song that is still moving is never given up on. */
+  let fruitless = 0;
 
   return new ReadableStream<Uint8Array>({
+    // Loops until it has something to hand over: a range ending is not an answer
+    // to the Player's read, and returning without one stalls the Stream for
+    // good, because nothing asks again.
     async pull(controller) {
-      if (finished) return;
+      while (!cancelled) {
+        try {
+          if (!current) {
+            if (delivered >= totalBytes) return controller.close();
+            rangeEnd = Math.min(delivered + rangeBytes, totalBytes) - 1;
+            current = (await openRange(delivered, rangeEnd)).getReader();
+          }
 
-      let chunk;
-      try {
-        chunk = await reader.read();
-      } catch (error) {
-        // The audio running out and SABR giving up arrive by the same door, and
-        // the length is what tells them apart. Stopping short of it means the
-        // Song was cut off — closing the stream there would hand the Player a
-        // truncated file it cannot tell from a whole one, so it would fire
-        // `ended`, report the Track finished and move on part way through.
-        // Erroring is what reaches the Room's retry instead.
-        //
-        // When the length was never given, bytes already delivered are still
-        // the only evidence there is, and a complete Song remains the better
-        // guess than a failed one.
-        const ranOut = delivered > 0 && (expectedBytes === undefined || delivered >= expectedBytes);
-        if (ranOut) return finish(controller);
+          const { done, value } = await current.read();
 
-        finished = true;
-        controller.error(error);
-        // Same reasoning as finish(): SABR is stopped through its own abort, not
-        // by cancelling the reader underneath it.
-        abortStream();
-        void reader.cancel().catch(() => {});
-        return;
+          if (done) {
+            current = undefined;
+            if (delivered > rangeEnd) continue; // the whole range arrived; on to the next
+            throw new Error(`The audio stopped short: ${delivered} of ${totalBytes} bytes`);
+          }
+
+          fruitless = 0;
+          delivered += value.length;
+          controller.enqueue(value);
+          return;
+        } catch (error) {
+          // A range that fails or stops early is usually a blip, and the next
+          // range simply starts from where the audio got to, so asking again
+          // resumes rather than repeats.
+          current = undefined;
+          if (++fruitless > RESUME_ATTEMPTS) throw error;
+        }
       }
-
-      if (chunk.done || !chunk.value) return finish(controller);
-
-      delivered += chunk.value.length;
-      controller.enqueue(chunk.value);
-      if (expectedBytes !== undefined && delivered >= expectedBytes) finish(controller);
     },
 
-    cancel(reason) {
-      finished = true;
-      abortStream();
-      void reader.cancel(reason).catch(() => {});
+    async cancel(reason) {
+      cancelled = true;
+      await current?.cancel(reason).catch(() => {});
     }
   });
 }
 
 /**
- * SABR describes a format with the same facts youtubei.js does, under different
- * names. Absent facts are left out rather than filled in, so that "YouTube did
- * not say" never arrives as a made-up value.
+ * What the speaker will play: the audio-only format nearest ABOUT_RIGHT_BITRATE.
+ *
+ * Formats carrying video are skipped — there is nothing to show, and the video
+ * is most of the bytes. Of the rest the middle is wanted, not the best: it is a
+ * speaker in a room, not headphones, and the highest quality is several times
+ * the bandwidth for a difference nobody at the party will hear.
+ *
+ * Nearest-to-a-target rather than a quality label, because the label is optional
+ * and a video that omits it would otherwise fall back to the most expensive
+ * format there is — the opposite of what is wanted.
  */
-function toSabrFormat(format: Misc.Format): SabrFormat {
-  const optional = {
-    width: format.width,
-    height: format.height,
-    contentLength: format.content_length,
-    isDrc: format.is_drc,
-    audioQuality: format.audio_quality,
-    language: format.language
-  };
-
-  return {
-    itag: format.itag,
-    lastModified: format.last_modified_ms,
-    approxDurationMs: format.approx_duration_ms,
-    xtags: format.xtags ?? '',
-    mimeType: format.mime_type,
-    bitrate: format.bitrate,
-    ...Object.fromEntries(Object.entries(optional).filter(([, value]) => value !== undefined))
-  };
+export function chooseAudioFormat(formats: Misc.Format[]): Misc.Format | undefined {
+  const distance = (format: Misc.Format) => Math.abs((format.bitrate ?? 0) - ABOUT_RIGHT_BITRATE);
+  return formats
+    .filter((format) => format.has_audio && !format.has_video)
+    .sort((a, b) => distance(a) - distance(b))[0];
 }
 
 /**
  * Opens a Stream for a video.
  *
- * YouTube serves audio over SABR: there is no per-format URL a media element
- * could fetch, so the bytes are pulled here and relayed to the Player. See
+ * The bytes are pulled here and relayed to the Player rather than fetched by the
+ * Player itself, because the media host only permits the YouTube origin. See
  * ADR-0002 for why that has to happen on this machine.
  */
 export function innertubeStream(youtube: Innertube): StreamLookup {
   return async (videoId) => {
-    const info = await youtube.getInfo(videoId);
-    const streaming = info.streaming_data;
-    const abrUrl = streaming?.server_abr_streaming_url;
-    const ustreamerConfig =
-      info.player_config?.media_common_config?.media_ustreamer_request_config
-        ?.video_playback_ustreamer_config;
+    const info = await youtube.getInfo(videoId, { client: CLIENT_WITH_URLS });
+    const format = chooseAudioFormat(info.streaming_data?.adaptive_formats ?? []);
 
-    if (!abrUrl || !ustreamerConfig) throw new Error('YouTube did not offer a stream for this video');
+    // Without a length there is no way to tell a Song that ended from one that
+    // was cut off, and no way to ask for a range either.
+    if (!format?.content_length) {
+      throw new Error('YouTube did not offer a stream for this video');
+    }
 
-    const sabr = new SabrStream({
-      formats: streaming.adaptive_formats.map(toSabrFormat),
-      serverAbrStreamingUrl: await youtube.session.player!.decipher(abrUrl),
-      videoPlaybackUstreamerConfig: ustreamerConfig,
-      durationMs: (info.basic_info.duration ?? 0) * 1_000,
-      clientInfo: { clientName: 1, clientVersion: '2.20240726.00.00' }
-    });
+    // Undeciphered the URL returns 403, and its throttling parameter has to be
+    // unscrambled too or YouTube paces what it sends. Both are the player
+    // script's doing; see evaluatePlayerScript.
+    //
+    // Asked without a player, decipher hands back the raw URL rather than
+    // refusing, and the Song then fails later as an unexplained 403. Saying so
+    // here is what makes that a session to reopen rather than a mystery.
+    const player = youtube.session.player;
+    if (!player) throw new Error('The YouTube session has no player to decipher with');
 
-    const { audioStream, selectedFormats } = await sabr.start({
-      audioQuality: 'AUDIO_QUALITY_MEDIUM',
-      enabledTrackTypes: 1 // audio only; there is nothing to show
-    });
+    const url = await format.decipher(player);
+
+    const openRange: RangeLookup = async (start, end) => {
+      const response = await fetch(url, { headers: { range: `bytes=${start}-${end}` } });
+      if (!response.ok || !response.body) {
+        throw new Error(`YouTube refused a range of the audio (${response.status})`);
+      }
+      return response.body;
+    };
 
     return {
-      body: endWhenTheAudioRunsOut(audioStream, selectedFormats?.audioFormat?.contentLength, () =>
-        sabr.abort()
-      ),
-      contentType: selectedFormats?.audioFormat?.mimeType ?? 'audio/webm'
+      body: streamInRanges(openRange, format.content_length),
+      contentType: format.mime_type
     };
   };
 }
