@@ -16,7 +16,19 @@ import {
 } from './sources/innertube.js';
 import type { Effect } from './room/types.js';
 import type { SourceProvider } from './sources/types.js';
+import { randomBytes } from 'node:crypto';
+import { admits, readAccess, type Role } from './access.js';
 import type { AddResult } from '@qmp/shared';
+
+// Secrets live in .env, never in the repository. See .env.example.
+try {
+  process.loadEnvFile();
+} catch {
+  // Already in the environment, or there is no file — readAccess decides whether
+  // that is survivable.
+}
+
+const access = readAccess(process.env);
 
 const PORT = Number(process.env['PORT'] ?? 5858);
 const HOST = process.env['HOST'] ?? '0.0.0.0';
@@ -41,11 +53,29 @@ const app = Fastify({ logger: false });
 app.get('/health', async () => ({ ok: true }));
 
 /**
+ * Tickets for the audio endpoint, one per Player connection.
+ *
+ * An audio element cannot send credentials, and a Song's id is simply its
+ * YouTube id, so an ungated endpoint would let anyone who found the address
+ * stream anything through this machine's connection. Each admitted Player is
+ * handed a throwaway ticket instead, which dies with its connection. The
+ * password itself never travels in a URL.
+ */
+const streamTickets = new Set<string>();
+
+/**
  * The Player's audio element pulls from here. The bytes come from the Extractor
  * rather than from YouTube directly, because YouTube serves audio over SABR and
  * no media element can speak it. See ADR-0002.
  */
-app.get<{ Params: { songId: string } }>('/stream/:songId', async (request, reply) => {
+app.get<{ Params: { songId: string }; Querystring: { ticket?: string } }>(
+  '/stream/:songId',
+  async (request, reply) => {
+  const ticket = request.query.ticket;
+  if (typeof ticket !== 'string' || !streamTickets.has(ticket)) {
+    return reply.code(401).send({ reason: 'This is the speaker\'s door, and it is shut.' });
+  }
+
   const song = room.findSong(request.params.songId);
   if (!song) return reply.code(404).send({ reason: 'That Song is not in the Room.' });
 
@@ -65,7 +95,8 @@ app.get<{ Params: { songId: string } }>('/stream/:songId', async (request, reply
     request.log.error(error);
     return reply.code(502).send({ reason: 'Could not open that Song.' });
   }
-});
+  }
+);
 
 await app.listen({ port: PORT, host: HOST });
 
@@ -80,15 +111,44 @@ function apply(effects: Effect[]): void {
   }
 }
 
+/**
+ * Nobody hears anything about the Room until they have shown they belong in it.
+ * Refusing the connection outright, rather than letting it in and filtering
+ * afterwards, means there is no path where a snapshot escapes to a stranger.
+ */
+io.use((socket, next) => {
+  const admission = admits(access, socket.handshake.auth);
+  if (!admission.ok) return next(new Error(admission.reason));
+  socket.data.role = admission.role;
+  next();
+});
+
 io.on('connection', (socket) => {
+  const role = socket.data.role as Role;
   const query = socket.handshake.query;
   const controllerId = String(query['controllerId'] ?? socket.id);
   const nickname = String(query['nickname'] ?? 'Guest');
 
-  apply(room.dispatch({ type: 'controller/connected', controllerId, nickname }));
+  // The Player is a speaker, not a person: it does not appear in the Room.
+  if (role === 'controller') {
+    apply(room.dispatch({ type: 'controller/connected', controllerId, nickname }));
+  } else {
+    const ticket = randomBytes(24).toString('base64url');
+    streamTickets.add(ticket);
+    socket.on('disconnect', () => streamTickets.delete(ticket));
+    socket.emit('stream-ticket', ticket);
+  }
   socket.emit('room', room.snapshot());
 
+  /**
+   * Shaping the Queue is what the Join Code buys. Holding the Player password
+   * makes a device the speaker, and nothing more: the two gates are separate,
+   * so neither may be used to do the other's job.
+   */
+  const shapesTheQueue = role === 'controller';
+
   socket.on('track/add', async (url: unknown, ack?: (result: AddResult) => void) => {
+    if (!shapesTheQueue) return;
     const effects: Effect[] = [];
     let result: AddResult;
     try {
@@ -106,54 +166,62 @@ io.on('connection', (socket) => {
   });
 
   // Only the Player knows a Track has finished, and it must say which one:
-  // a reconnecting Player can otherwise end a Track that already ended.
+  // a reconnecting Player can otherwise end a Track that already ended. Now that
+  // the speaker has a gate of its own, only something through that gate may say
+  // these things at all.
   socket.on('track/ended', (trackId: unknown) => {
-    if (typeof trackId !== 'string') return;
+    if (role !== 'player' || typeof trackId !== 'string') return;
     apply(room.dispatch({ type: 'track/ended', trackId }));
   });
 
   // Likewise for where the audio has reached: only the Player can know, and a
   // report naming a Track that has moved on would drag the progress bar backwards.
   socket.on('player/position', (trackId: unknown, positionSeconds: unknown) => {
-    if (typeof trackId !== 'string' || typeof positionSeconds !== 'number') return;
+    if (role !== 'player' || typeof trackId !== 'string' || typeof positionSeconds !== 'number') return;
     apply(room.dispatch({ type: 'player/position', trackId, positionSeconds }));
   });
 
   socket.on('track/moved', (trackId: unknown, afterTrackId: unknown) => {
-    if (typeof trackId !== 'string') return;
+    if (!shapesTheQueue || typeof trackId !== 'string') return;
     if (afterTrackId !== null && typeof afterTrackId !== 'string') return;
     apply(room.dispatch({ type: 'track/moved', trackId, afterTrackId, nickname }));
   });
 
   socket.on('track/play-next', (trackId: unknown) => {
-    if (typeof trackId !== 'string') return;
+    if (!shapesTheQueue || typeof trackId !== 'string') return;
     apply(room.dispatch({ type: 'track/play-next', trackId, nickname }));
   });
 
   socket.on('track/removed', (trackId: unknown) => {
-    if (typeof trackId !== 'string') return;
+    if (!shapesTheQueue || typeof trackId !== 'string') return;
     apply(room.dispatch({ type: 'track/removed', trackId, nickname }));
   });
 
-  socket.on('transport/paused', () => apply(room.dispatch({ type: 'transport/paused', nickname })));
-  socket.on('transport/resumed', () => apply(room.dispatch({ type: 'transport/resumed', nickname })));
+  socket.on('transport/paused', () => {
+    if (shapesTheQueue) apply(room.dispatch({ type: 'transport/paused', nickname }));
+  });
+  socket.on('transport/resumed', () => {
+    if (shapesTheQueue) apply(room.dispatch({ type: 'transport/resumed', nickname }));
+  });
 
   socket.on('transport/skipped', (trackId: unknown) => {
-    if (typeof trackId !== 'string') return;
+    if (!shapesTheQueue || typeof trackId !== 'string') return;
     apply(room.dispatch({ type: 'transport/skipped', trackId, nickname }));
   });
 
   socket.on('transport/previous', (trackId: unknown) => {
-    if (typeof trackId !== 'string') return;
+    if (!shapesTheQueue || typeof trackId !== 'string') return;
     apply(room.dispatch({ type: 'transport/previous', trackId, nickname }));
   });
 
   socket.on('transport/volume', (volume: unknown) => {
-    if (typeof volume !== 'number' || Number.isNaN(volume)) return;
+    if (!shapesTheQueue || typeof volume !== 'number' || Number.isNaN(volume)) return;
     apply(room.dispatch({ type: 'transport/volume', volume, nickname }));
   });
 
-  socket.on('disconnect', () => apply(room.dispatch({ type: 'controller/disconnected', controllerId })));
+  socket.on('disconnect', () => {
+    if (role === 'controller') apply(room.dispatch({ type: 'controller/disconnected', controllerId }));
+  });
 });
 
 /**

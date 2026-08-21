@@ -1,5 +1,8 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+
+/* Icons are compiled into the stylesheet, so the Room needs no icon service. */
+@plugin "@iconify/tailwind4";
 @custom-variant dark (&:is(.dark *));
 :root {
   --radius: 0.625rem;

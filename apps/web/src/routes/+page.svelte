@@ -2,7 +2,6 @@
   import { onDestroy, onMount } from 'svelte';
   import { dndzone, type DndEvent } from 'svelte-dnd-action';
   import { flip } from 'svelte/animate';
-  import Icon from '@iconify/svelte';
   import * as Alert from '$lib/components/ui/alert';
   import { Badge } from '$lib/components/ui/badge';
   import { Button } from '$lib/components/ui/button';
@@ -12,14 +11,25 @@
   import { Progress } from '$lib/components/ui/progress';
   import { Separator } from '$lib/components/ui/separator';
   import { Slider } from '$lib/components/ui/slider';
-  import { createRoom } from '$lib/room.svelte';
+  import JoinForm from '$lib/components/join-form.svelte';
+  import { createRoom, remembered } from '$lib/room.svelte';
   import { createProgress } from '$lib/progress.svelte';
   import { asMinutesAndSeconds, describeAction } from '$lib/format';
   import type { Track } from '@qmp/shared';
 
   const room = createRoom();
-  onMount(room.connect);
-  onDestroy(room.disconnect);
+  // Read before the first render, so the form opens already filled in rather
+  // than filling itself in a moment later. Safe because this app never renders
+  // on a server.
+  const known = remembered();
+
+  onMount(() => {
+    // Nobody types the code twice: if this device has been in before, walk in.
+    if (known.joinCode && known.nickname) {
+      room.enter({ role: 'controller', joinCode: known.joinCode, nickname: known.nickname });
+    }
+  });
+  onDestroy(room.leave);
 
   let url = $state('');
   let adding = $state(false);
@@ -116,13 +126,27 @@
   }
 </script>
 
+{#if !room.admitted}
+  <JoinForm
+    title="Queue"
+    description="The Room is only for people who were told the code."
+    secretLabel="Join code"
+    secretPlaceholder="The code you were given"
+    secret={known.joinCode}
+    nickname={known.nickname}
+    knocking={room.standing === 'knocking'}
+    refusal={room.refusal}
+    onenter={({ secret, nickname }) =>
+      room.enter({ role: 'controller', joinCode: secret, nickname })}
+  />
+{:else}
 <main class="mx-auto flex min-h-dvh max-w-md flex-col gap-4 px-4 py-5">
   <header class="flex items-baseline justify-between">
     <h1 class="text-xl font-semibold tracking-tight">Queue</h1>
     {#if room.connected}
       <Badge variant="secondary">{room.controllerCount} here</Badge>
     {:else}
-      <span class="text-xs text-muted-foreground">connecting…</span>
+      <Badge variant="outline">reconnecting…</Badge>
     {/if}
   </header>
 
@@ -159,7 +183,7 @@
 
         <div class="flex items-center justify-center gap-2">
           <Button variant="ghost" size="icon-lg" class="size-12" onclick={() => room.previous(track.id)} aria-label="Previous">
-            <Icon icon="ic:round-skip-previous" />
+            <span class="icon-[ic--round-skip-previous] size-5"></span>
           </Button>
           <Button
             size="icon-lg"
@@ -167,10 +191,14 @@
             onclick={() => (room.transport.isPlaying ? room.pause() : room.resume())}
             aria-label={room.transport.isPlaying ? 'Pause' : 'Play'}
           >
-            <Icon icon={room.transport.isPlaying ? 'ic:round-pause' : 'ic:round-play-arrow'} />
+            <span
+              class="size-7 {room.transport.isPlaying
+                ? 'icon-[ic--round-pause]'
+                : 'icon-[ic--round-play-arrow]'}"
+            ></span>
           </Button>
           <Button variant="ghost" size="icon-lg" class="size-12" onclick={() => room.skip(track.id)} aria-label="Skip">
-            <Icon icon="ic:round-skip-next" />
+            <span class="icon-[ic--round-skip-next] size-5"></span>
           </Button>
         </div>
       </Card.Content>
@@ -178,7 +206,7 @@
   {/if}
 
   <div class="flex items-center gap-3">
-    <Icon icon="ic:round-volume-up" class="shrink-0 text-muted-foreground" />
+    <span class="icon-[ic--round-volume-up] size-5 shrink-0 text-muted-foreground"></span>
     <Slider
       type="single"
       value={volume}
@@ -222,7 +250,7 @@
 
   {#if problem}
     <Alert.Root variant="destructive">
-      <Icon icon="ic:round-error-outline" />
+      <span class="icon-[ic--round-error-outline] size-5"></span>
       <Alert.Description>{problem}</Alert.Description>
     </Alert.Root>
   {/if}
@@ -236,7 +264,7 @@
       <Empty.Root class="border border-dashed">
         <Empty.Header>
           <Empty.Media variant="icon">
-            <Icon icon="ic:round-queue-music" />
+            <span class="icon-[ic--round-queue-music] size-5"></span>
           </Empty.Media>
           <Empty.Title>Nothing queued yet</Empty.Title>
           <Empty.Description>Paste a YouTube link to start the night off.</Empty.Description>
@@ -259,11 +287,10 @@
             class="flex items-center gap-2 rounded-lg border bg-card p-2 text-card-foreground"
             animate:flip={{ duration: 150 }}
           >
-            <Icon
-              icon="ic:round-drag-indicator"
+            <span
               aria-hidden="true"
-              class="shrink-0 cursor-grab text-muted-foreground"
-            />
+              class="icon-[ic--round-drag-indicator] size-5 shrink-0 cursor-grab text-muted-foreground"
+            ></span>
             <img
               src={track.song.artworkUrl}
               alt=""
@@ -282,7 +309,7 @@
                 onclick={() => room.playNext(track.id)}
                 aria-label="Play {track.song.title} next"
               >
-                <Icon icon="ic:round-playlist-play" />
+                <span class="icon-[ic--round-playlist-play] size-5"></span>
               </Button>
             {/if}
             <Button
@@ -291,7 +318,7 @@
               onclick={() => room.removeTrack(track.id)}
               aria-label="Remove {track.song.title}"
             >
-              <Icon icon="ic:round-close" />
+              <span class="icon-[ic--round-close] size-5"></span>
             </Button>
           </li>
         {/each}
@@ -320,3 +347,4 @@
     </section>
   {/if}
 </main>
+{/if}

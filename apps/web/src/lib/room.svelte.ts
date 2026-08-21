@@ -4,6 +4,15 @@ import type { AddResult, RoomState } from '@qmp/shared';
 
 const CONTROLLER_ID_KEY = 'qmp:controllerId';
 const NICKNAME_KEY = 'qmp:nickname';
+const JOIN_CODE_KEY = 'qmp:joinCode';
+
+/** How someone gets into the Room: as a phone, or as the speaker. */
+export type Entry =
+  | { role: 'controller'; joinCode: string; nickname: string }
+  | { role: 'player'; playerPassword: string };
+
+/** Outside the door, waiting at it, or in. */
+export type Standing = 'outside' | 'knocking' | 'inside';
 
 /** Stable per-device identity, so a reload is the same Controller reconnecting. */
 function controllerId(): string {
@@ -13,9 +22,6 @@ function controllerId(): string {
   localStorage.setItem(CONTROLLER_ID_KEY, fresh);
   return fresh;
 }
-
-/** Choosing a Nickname comes later; until then everyone is a guest. */
-const nickname = () => localStorage.getItem(NICKNAME_KEY) ?? 'Guest';
 
 /** Matches PORT in the server. */
 const SERVER_PORT = 5858;
@@ -27,9 +33,31 @@ const SERVER_PORT = 5858;
  */
 const serverUrl = () => `${location.protocol}//${location.hostname}:${SERVER_PORT}`;
 
+/**
+ * What this device was let in with last time, so nobody types it twice.
+ *
+ * The Player's password is deliberately not among them. Remembering it would
+ * hand the speaker to whoever next opens that page on the host's laptop, and
+ * the Player is opened once an evening, not once a glance.
+ */
+export function remembered() {
+  return {
+    joinCode: localStorage.getItem(JOIN_CODE_KEY) ?? '',
+    nickname: localStorage.getItem(NICKNAME_KEY) ?? ''
+  };
+}
+
 export function createRoom() {
   let state = $state<RoomState>(emptyRoom());
-  let connected = $state(false);
+  let standing = $state<Standing>('outside');
+  let refusal = $state<string | null>(null);
+  let streamTicket = $state<string | null>(null);
+  /**
+   * Whether this device has ever been let in. Once it has, a dropped connection
+   * is a hiccup to wait out, not a reason to send everyone back to the door and
+   * make them find the code again in the middle of a party.
+   */
+  let admitted = $state(false);
   /**
    * When this device heard the Player's latest position report. The Player's own
    * clock is not this device's clock, and phones disagree by minutes, so elapsed
@@ -60,14 +88,67 @@ export function createRoom() {
     get positionHeardAt() {
       return positionHeardAt;
     },
+    get standing() {
+      return standing;
+    },
+    /** Has been let in at least once, whatever the connection is doing now. */
+    get admitted() {
+      return admitted;
+    },
     get connected() {
-      return connected;
+      return standing === 'inside';
+    },
+    /** Why the door did not open, in words worth showing someone. */
+    get refusal() {
+      return refusal;
     },
 
-    connect() {
-      socket = io(serverUrl(), { query: { controllerId: controllerId(), nickname: nickname() } });
-      socket.on('connect', () => (connected = true));
-      socket.on('disconnect', () => (connected = false));
+    enter(entry: Entry) {
+      socket?.disconnect();
+      standing = 'knocking';
+      refusal = null;
+
+      // Credentials travel as auth, not as query: the server refuses the
+      // connection outright rather than letting it open and filtering after.
+      socket = io(serverUrl(), {
+        auth: entry,
+        query:
+          entry.role === 'controller'
+            ? { controllerId: controllerId(), nickname: entry.nickname }
+            : { controllerId: 'the-player' }
+      });
+
+      socket.on('connect', () => {
+        standing = 'inside';
+        admitted = true;
+        refusal = null;
+        if (entry.role === 'controller') {
+          localStorage.setItem(JOIN_CODE_KEY, entry.joinCode);
+          localStorage.setItem(NICKNAME_KEY, entry.nickname);
+        }
+      });
+
+      socket.on('stream-ticket', (ticket: string) => (streamTicket = ticket));
+
+      socket.on('connect_error', (error: Error) => {
+        // Being turned away is final; the wifi hiccuping is not. Socket.IO says
+        // which by whether it means to try again — and treating a hiccup as a
+        // refusal would throw everyone back to the door, mid-party, and stop the
+        // client ever reconnecting on its own.
+        if (socket?.active) {
+          standing = 'knocking';
+          return;
+        }
+        standing = 'outside';
+        admitted = false;
+        refusal = error.message || 'Could not reach the Room.';
+      });
+
+      socket.on('disconnect', (reason: string) => {
+        if (reason === 'io client disconnect') return;
+        standing = 'knocking';
+      });
+
       socket.on('room', (next: RoomState) => {
         if (next.transport.positionReportedAt !== state.transport.positionReportedAt) {
           positionHeardAt = Date.now();
@@ -76,7 +157,14 @@ export function createRoom() {
       });
     },
 
-    disconnect: () => socket?.disconnect(),
+    leave() {
+      socket?.disconnect();
+      socket = undefined;
+      standing = 'outside';
+      admitted = false;
+      streamTicket = null;
+      state = emptyRoom();
+    },
 
     /**
      * Where the Player's audio element pulls a Song's bytes from. Scoped to the
@@ -84,7 +172,9 @@ export function createRoom() {
      * still looks like a new source to the audio element and starts again.
      */
     streamSrc: (track: { id: string; song: { id: string } }) =>
-      `${serverUrl()}/stream/${encodeURIComponent(track.song.id)}?track=${encodeURIComponent(track.id)}`,
+      `${serverUrl()}/stream/${encodeURIComponent(track.song.id)}` +
+      `?track=${encodeURIComponent(track.id)}` +
+      `&ticket=${encodeURIComponent(streamTicket ?? '')}`,
 
     /** Only the Player may say these; it is the one thing that knows. */
     reportTrackEnded: (trackId: string) => socket?.emit('track/ended', trackId),

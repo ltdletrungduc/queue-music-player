@@ -1,14 +1,15 @@
 <script lang="ts">
   import { onDestroy, onMount, untrack } from 'svelte';
-  import Icon from '@iconify/svelte';
   import * as Alert from '$lib/components/ui/alert';
   import { Button } from '$lib/components/ui/button';
   import * as Empty from '$lib/components/ui/empty';
+  import JoinForm from '$lib/components/join-form.svelte';
   import { createRoom } from '$lib/room.svelte';
 
   const room = createRoom();
-  onMount(room.connect);
-  onDestroy(room.disconnect);
+  // The Player's password is never remembered: see room.svelte.ts. Someone is
+  // standing at this machine when the night starts, so typing it once is cheap.
+  onDestroy(room.leave);
 
   let audio = $state<HTMLAudioElement | null>(null);
   let started = $state(false);
@@ -85,10 +86,22 @@
   });
 </script>
 
+{#if !room.admitted}
+  <JoinForm
+    title="The speaker"
+    description="This device is the one that makes the sound. It has its own password."
+    secretLabel="Player password"
+    secretPlaceholder="Not the join code"
+    secret=""
+    knocking={room.standing === 'knocking'}
+    refusal={room.refusal}
+    onenter={({ secret }) => room.enter({ role: 'player', playerPassword: secret })}
+  />
+{:else}
 <main class="flex min-h-dvh flex-col items-center justify-center gap-6 px-6">
   {#if !started}
     <Button size="lg" class="h-14 rounded-full px-10 text-lg" onclick={start}>
-      <Icon icon="ic:round-play-arrow" data-icon="inline-start" />
+      <span data-icon="inline-start" class="icon-[ic--round-play-arrow] size-5"></span>
       Start the speaker
     </Button>
     <p class="text-sm text-muted-foreground">Sound comes out of this device only.</p>
@@ -106,7 +119,7 @@
         {#if room.transport.isPlaying}
           added by {nowPlaying.addedByNickname}
         {:else}
-          <Icon icon="ic:round-pause" />
+          <span class="icon-[ic--round-pause] size-5"></span>
           Paused
         {/if}
       </p>
@@ -115,7 +128,7 @@
     <Empty.Root>
       <Empty.Header>
         <Empty.Media variant="icon">
-          <Icon icon="ic:round-queue-music" />
+          <span class="icon-[ic--round-queue-music] size-5"></span>
         </Empty.Media>
         <Empty.Title>Queue's empty</Empty.Title>
         <Empty.Description>Add something from your phone.</Empty.Description>
@@ -125,7 +138,7 @@
 
   {#if problem}
     <Alert.Root variant="destructive" class="max-w-md">
-      <Icon icon="ic:round-error-outline" />
+      <span class="icon-[ic--round-error-outline] size-5"></span>
       <Alert.Description>{problem}</Alert.Description>
     </Alert.Root>
   {/if}
@@ -137,3 +150,4 @@
     onerror={() => (problem = 'That Song would not play.')}
   ></audio>
 </main>
+{/if}

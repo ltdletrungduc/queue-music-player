@@ -10,12 +10,13 @@
     "typecheck": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json"
   },
   "dependencies": {
-    "@iconify/svelte": "^5.2.2",
     "@qmp/shared": "workspace:*",
     "socket.io-client": "^4.8.1",
     "svelte-dnd-action": "^0.9.61"
   },
   "devDependencies": {
+    "@iconify-json/ic": "^1.2.4",
+    "@iconify/tailwind4": "^1.2.3",
     "@internationalized/date": "^3.12.3",
     "@lucide/svelte": "^1.33.0",
     "@sveltejs/adapter-static": "^3.0.8",
