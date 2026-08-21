@@ -84,7 +84,7 @@ export function innertubeLookup(youtube: Innertube): SongLookup {
  *
  * The chosen format says how many bytes the audio is, so that is the end.
  */
-function endWhenTheAudioRunsOut(
+export function endWhenTheAudioRunsOut(
   source: ReadableStream<Uint8Array>,
   expectedBytes: number | undefined,
   abortStream: () => void
@@ -113,12 +113,25 @@ function endWhenTheAudioRunsOut(
       try {
         chunk = await reader.read();
       } catch (error) {
-        // This is how the audio running out usually announces itself, and when
-        // the length was unknown it is the only way we find out. Bytes already
-        // delivered are a complete Song; no bytes at all is a real failure.
-        if (delivered > 0) return finish(controller);
+        // The audio running out and SABR giving up arrive by the same door, and
+        // the length is what tells them apart. Stopping short of it means the
+        // Song was cut off — closing the stream there would hand the Player a
+        // truncated file it cannot tell from a whole one, so it would fire
+        // `ended`, report the Track finished and move on part way through.
+        // Erroring is what reaches the Room's retry instead.
+        //
+        // When the length was never given, bytes already delivered are still
+        // the only evidence there is, and a complete Song remains the better
+        // guess than a failed one.
+        const ranOut = delivered > 0 && (expectedBytes === undefined || delivered >= expectedBytes);
+        if (ranOut) return finish(controller);
+
         finished = true;
         controller.error(error);
+        // Same reasoning as finish(): SABR is stopped through its own abort, not
+        // by cancelling the reader underneath it.
+        abortStream();
+        void reader.cancel().catch(() => {});
         return;
       }
 
