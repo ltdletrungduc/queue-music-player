@@ -55,6 +55,11 @@ The Tracks that have already played, most recent first. Previous draws from it;
 nothing else does.
 _Avoid_: Recently played, log, past
 
+**Play Next**:
+Moving a waiting Track to the front of the Queue, so it plays once Now Playing
+finishes. It never interrupts what is sounding.
+_Avoid_: Bump, prioritise, jump the queue
+
 **Playlist**:
 A saved, durable collection of Tracks, attributed to whoever created it but
 editable by anyone in the Room. A Track appears in a Playlist at most once.

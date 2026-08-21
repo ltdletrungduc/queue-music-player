@@ -58,7 +58,7 @@ export type RoomAction = {
   nickname: string;
   at: number;
 } & (
-  | { did: 'paused' | 'resumed' | 'skipped' | 'previous' | 'restarted' }
+  | { did: 'paused' | 'resumed' | 'skipped' | 'previous' | 'restarted' | 'moved' | 'play-next' | 'removed' }
   /** Carried as the number it is; how to say it is the interface's business. */
   | { did: 'volume'; volume: number }
 );

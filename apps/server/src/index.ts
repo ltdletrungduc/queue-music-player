@@ -119,6 +119,22 @@ io.on('connection', (socket) => {
     apply(room.dispatch({ type: 'player/position', trackId, positionSeconds }));
   });
 
+  socket.on('track/moved', (trackId: unknown, afterTrackId: unknown) => {
+    if (typeof trackId !== 'string') return;
+    if (afterTrackId !== null && typeof afterTrackId !== 'string') return;
+    apply(room.dispatch({ type: 'track/moved', trackId, afterTrackId, nickname }));
+  });
+
+  socket.on('track/play-next', (trackId: unknown) => {
+    if (typeof trackId !== 'string') return;
+    apply(room.dispatch({ type: 'track/play-next', trackId, nickname }));
+  });
+
+  socket.on('track/removed', (trackId: unknown) => {
+    if (typeof trackId !== 'string') return;
+    apply(room.dispatch({ type: 'track/removed', trackId, nickname }));
+  });
+
   socket.on('transport/paused', () => apply(room.dispatch({ type: 'transport/paused', nickname })));
   socket.on('transport/resumed', () => apply(room.dispatch({ type: 'transport/resumed', nickname })));
 

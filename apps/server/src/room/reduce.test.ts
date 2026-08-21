@@ -519,3 +519,144 @@ describe('going back', () => {
     expect(state).toBe(idle);
   });
 });
+
+describe('shaping the Queue', () => {
+  /** A Room playing 'zzzzzzzzzzz', with a, b and c waiting in that order. */
+  const queued = () => withTracks('zzzzzzzzzzz', 'aaaaaaaaaaa', 'bbbbbbbbbbb', 'ccccccccccc');
+  const idOf = (state: RoomState, sourceId: string) =>
+    state.queue.find((t) => t.song.sourceId === sourceId)!.id;
+  const waiting = (state: RoomState) => state.queue.map((t) => t.song.sourceId);
+  const inKeyOrder = (state: RoomState) => {
+    const keys = state.queue.map((t) => t.orderKey);
+    return [...keys].every((k, i) => i === 0 || keys[i - 1]! < k);
+  };
+
+  const move = (state: RoomState, sourceId: string, afterSourceId: string | null): Command => ({
+    type: 'track/moved',
+    trackId: idOf(state, sourceId),
+    afterTrackId: afterSourceId === null ? null : idOf(state, afterSourceId),
+    nickname: 'Duc'
+  });
+
+  it('moves a Track to the end', () => {
+    const before = queued();
+    const { state } = reduce(before, move(before, 'aaaaaaaaaaa', 'ccccccccccc'), ctx());
+    expect(waiting(state)).toEqual(['bbbbbbbbbbb', 'ccccccccccc', 'aaaaaaaaaaa']);
+    expect(inKeyOrder(state)).toBe(true);
+  });
+
+  it('moves a Track to the front', () => {
+    const before = queued();
+    const { state } = reduce(before, move(before, 'ccccccccccc', null), ctx());
+    expect(waiting(state)).toEqual(['ccccccccccc', 'aaaaaaaaaaa', 'bbbbbbbbbbb']);
+    expect(inKeyOrder(state)).toBe(true);
+  });
+
+  it('moves a Track into the middle', () => {
+    const before = queued();
+    const { state } = reduce(before, move(before, 'ccccccccccc', 'aaaaaaaaaaa'), ctx());
+    expect(waiting(state)).toEqual(['aaaaaaaaaaa', 'ccccccccccc', 'bbbbbbbbbbb']);
+    expect(inKeyOrder(state)).toBe(true);
+  });
+
+  it('rewrites only the Track that moved', () => {
+    const before = queued();
+    const { state } = reduce(before, move(before, 'ccccccccccc', null), ctx());
+
+    const changed = state.queue.filter((track) => {
+      const was = before.queue.find((t) => t.id === track.id);
+      return was?.orderKey !== track.orderKey;
+    });
+    expect(changed.map((t) => t.song.sourceId)).toEqual(['ccccccccccc']);
+  });
+
+  it('leaves a Track where it already was', () => {
+    const before = queued();
+    const { state } = reduce(before, move(before, 'bbbbbbbbbbb', 'aaaaaaaaaaa'), ctx());
+    expect(waiting(state)).toEqual(['aaaaaaaaaaa', 'bbbbbbbbbbb', 'ccccccccccc']);
+  });
+
+  it('cannot move Now Playing, which is not in the Queue', () => {
+    const before = queued();
+    const { state, effects } = reduce(
+      before,
+      { type: 'track/moved', trackId: before.nowPlaying!.id, afterTrackId: null, nickname: 'Duc' },
+      ctx()
+    );
+    expect(state).toBe(before);
+    expect(effects).toEqual([]);
+  });
+
+  it('ignores a move anchored to a Track that has gone', () => {
+    const before = queued();
+    const { state } = reduce(
+      before,
+      { type: 'track/moved', trackId: idOf(before, 'aaaaaaaaaaa'), afterTrackId: 'long-gone', nickname: 'Duc' },
+      ctx()
+    );
+    expect(state).toBe(before);
+  });
+
+  it('survives two people dragging at once', () => {
+    const before = queued();
+    // Both moves are decided against the same Queue, as two phones would.
+    const first = move(before, 'ccccccccccc', null);
+    const second = move(before, 'aaaaaaaaaaa', 'bbbbbbbbbbb');
+
+    const after = reduce(reduce(before, first, ctx()).state, second, ctx()).state;
+
+    // Both moves land: c to the front, then a after b. Nothing is lost, nothing
+    // is duplicated, and the order is the one the two moves describe together.
+    expect(waiting(after)).toEqual(['ccccccccccc', 'bbbbbbbbbbb', 'aaaaaaaaaaa']);
+    expect(new Set(after.queue.map((t) => t.id)).size).toBe(3);
+    expect(inKeyOrder(after)).toBe(true);
+  });
+
+  it('plays a Track next without interrupting what is sounding', () => {
+    const before = queued();
+    const { state } = reduce(
+      before,
+      { type: 'track/play-next', trackId: idOf(before, 'ccccccccccc'), nickname: 'Mai' },
+      ctx(9)
+    );
+
+    expect(state.nowPlaying?.song.sourceId).toBe('zzzzzzzzzzz');
+    expect(waiting(state)).toEqual(['ccccccccccc', 'aaaaaaaaaaa', 'bbbbbbbbbbb']);
+    expect(state.lastAction).toEqual({ nickname: 'Mai', did: 'play-next', at: 9 });
+  });
+
+  it('removes a Track from the Queue', () => {
+    const before = queued();
+    const { state } = reduce(
+      before,
+      { type: 'track/removed', trackId: idOf(before, 'bbbbbbbbbbb'), nickname: 'Mai' },
+      ctx(3)
+    );
+
+    expect(waiting(state)).toEqual(['aaaaaaaaaaa', 'ccccccccccc']);
+    expect(state.lastAction).toEqual({ nickname: 'Mai', did: 'removed', at: 3 });
+  });
+
+  it('cannot remove Now Playing, which is not in the Queue', () => {
+    const before = queued();
+    const { state, effects } = reduce(
+      before,
+      { type: 'track/removed', trackId: before.nowPlaying!.id, nickname: 'Duc' },
+      ctx()
+    );
+    expect(state).toBe(before);
+    expect(effects).toEqual([]);
+  });
+
+  it('ignores removing a Track that has already gone', () => {
+    const before = queued();
+    const { state } = reduce(before, { type: 'track/removed', trackId: 'long-gone', nickname: 'Duc' }, ctx());
+    expect(state).toBe(before);
+  });
+
+  it('tells everyone about a move', () => {
+    const before = queued();
+    const { effects } = reduce(before, move(before, 'ccccccccccc', null), ctx());
+    expect(effects).toEqual([{ type: 'broadcast-snapshot' }]);
+  });
+});

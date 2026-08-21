@@ -95,6 +95,12 @@ export function createRoom() {
     resume: () => socket?.emit('transport/resumed'),
     skip: (trackId: string) => socket?.emit('transport/skipped', trackId),
     previous: (trackId: string) => socket?.emit('transport/previous', trackId),
+
+    /** Place a waiting Track after another; null puts it at the front. */
+    moveTrack: (trackId: string, afterTrackId: string | null) =>
+      socket?.emit('track/moved', trackId, afterTrackId),
+    playNext: (trackId: string) => socket?.emit('track/play-next', trackId),
+    removeTrack: (trackId: string) => socket?.emit('track/removed', trackId),
     setVolume: (volume: number) => socket?.emit('transport/volume', volume)
 
     ,

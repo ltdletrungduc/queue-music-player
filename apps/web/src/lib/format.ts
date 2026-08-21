@@ -12,6 +12,12 @@ export function describeAction(action: { did: string; volume?: number }): string
       return 'skipped';
     case 'previous':
       return 'went back';
+    case 'moved':
+      return 'moved a track';
+    case 'play-next':
+      return 'played a track next';
+    case 'removed':
+      return 'removed a track';
     case 'restarted':
       return 'started it over';
     case 'volume':

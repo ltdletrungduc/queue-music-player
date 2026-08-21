@@ -81,6 +81,34 @@ const fromTheTop = (state: RoomState, now: number): RoomState => ({
 });
 
 /**
+ * Puts a waiting Track after another one, or at the front when nothing precedes
+ * it. Only the moved Track's key changes, so two people dragging at once cannot
+ * scramble the order between them.
+ *
+ * Returns null when the move cannot be made sense of: the Track is not waiting
+ * (it may be Now Playing, which is not in the Queue at all), or whatever it was
+ * to follow has since gone.
+ */
+function moved(queue: Track[], trackId: string, afterTrackId: string | null): Track[] | null {
+  const moving = queue.find((t) => t.id === trackId);
+  if (!moving) return null;
+
+  const rest = queue.filter((t) => t.id !== trackId);
+  const follows = rest.findIndex((t) => t.id === afterTrackId);
+  if (afterTrackId !== null && follows === -1) return null;
+
+  const landsAt = follows + 1;
+  const before = rest[landsAt - 1]?.orderKey ?? null;
+  const after = rest[landsAt]?.orderKey ?? null;
+
+  return [
+    ...rest.slice(0, landsAt),
+    { ...moving, orderKey: generateKeyBetween(before, after) },
+    ...rest.slice(landsAt)
+  ];
+}
+
+/**
  * Steps back to the Track before this one, sending the Track being left to the
  * front of the Queue so it plays next rather than being lost.
  */
@@ -141,6 +169,38 @@ export function reduce(state: RoomState, command: Command, ctx: Ctx): Reduced {
       // already been dealt with. Only the Track actually sounding may end.
       if (state.nowPlaying?.id !== command.trackId) return unchanged(state);
       return broadcast(retireNowPlaying(state, ctx.now));
+    }
+
+    case 'track/moved': {
+      const reordered = moved(state.queue, command.trackId, command.afterTrackId);
+      if (!reordered) return unchanged(state);
+      return broadcast(
+        attributed(
+          { ...state, queue: reordered },
+          { nickname: command.nickname, did: 'moved', at: ctx.now }
+        )
+      );
+    }
+
+    case 'track/play-next': {
+      const reordered = moved(state.queue, command.trackId, null);
+      if (!reordered) return unchanged(state);
+      return broadcast(
+        attributed(
+          { ...state, queue: reordered },
+          { nickname: command.nickname, did: 'play-next', at: ctx.now }
+        )
+      );
+    }
+
+    case 'track/removed': {
+      if (!state.queue.some((t) => t.id === command.trackId)) return unchanged(state);
+      return broadcast(
+        attributed(
+          { ...state, queue: state.queue.filter((t) => t.id !== command.trackId) },
+          { nickname: command.nickname, did: 'removed', at: ctx.now }
+        )
+      );
     }
 
     case 'transport/paused': {

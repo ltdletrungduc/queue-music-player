@@ -7,6 +7,10 @@ export type Command =
   | { type: 'controller/disconnected'; controllerId: string }
   | { type: 'track/added'; song: Song; controllerId: string; nickname: string }
   | { type: 'track/ended'; trackId: string }
+  /** Place a waiting Track after another, or at the front when nothing precedes it. */
+  | { type: 'track/moved'; trackId: string; afterTrackId: string | null; nickname: string }
+  | { type: 'track/play-next'; trackId: string; nickname: string }
+  | { type: 'track/removed'; trackId: string; nickname: string }
   | { type: 'transport/paused'; nickname: string }
   | { type: 'transport/resumed'; nickname: string }
   | { type: 'transport/skipped'; trackId: string; nickname: string }
