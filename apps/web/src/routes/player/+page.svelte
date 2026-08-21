@@ -1,12 +1,16 @@
 <script lang="ts">
-  import { onDestroy, onMount, untrack } from 'svelte';
+  import { onDestroy, untrack } from 'svelte';
+  import JoinForm from '$lib/components/join-form.svelte';
   import * as Alert from '$lib/components/ui/alert';
   import { Button } from '$lib/components/ui/button';
   import * as Empty from '$lib/components/ui/empty';
-  import JoinForm from '$lib/components/join-form.svelte';
+  import { Progress } from '$lib/components/ui/progress';
   import { createRoom } from '$lib/room.svelte';
+  import { createProgress } from '$lib/progress.svelte';
+  import { asMinutesAndSeconds } from '$lib/format';
 
   const room = createRoom();
+
   // The Player's password is never remembered: see room.svelte.ts. Someone is
   // standing at this machine when the night starts, so typing it once is cheap.
   onDestroy(room.leave);
@@ -16,6 +20,13 @@
   let problem = $state('');
 
   const nowPlaying = $derived(room.nowPlaying);
+
+  const progress = createProgress(() => ({
+    positionSeconds: room.transport.positionSeconds,
+    heardAt: room.positionHeardAt,
+    isPlaying: room.transport.isPlaying,
+    durationSeconds: room.nowPlaying?.song.durationSeconds ?? 0
+  }));
 
   // Browsers refuse to play sound until someone has asked for it, so the Player
   // is armed once and then left alone for the rest of the night.
@@ -35,7 +46,6 @@
    */
   async function obeyTransport() {
     if (!started || !audio || !nowPlaying) return;
-    problem = '';
     try {
       if (room.transport.isPlaying) await audio.play();
       else audio.pause();
@@ -51,8 +61,7 @@
    *
    * Every new playthrough is loaded from scratch. That is what makes the retry
    * real: after a failure the element is stuck in an error state and will not
-   * fetch anything again until it is told to, so without this the Room would
-   * wait for a second failure that could never arrive.
+   * fetch anything again until it is told to.
    */
   let playthrough = -1;
   $effect(() => {
@@ -63,9 +72,9 @@
     playthrough = startedAt;
 
     untrack(() => {
+      // A fresh attempt: whatever went wrong last time is no longer the news.
+      problem = '';
       element.load();
-      // Where the Room says the audio is, which after a drop is where it was
-      // when the Player last managed to say so.
       if (room.transport.positionSeconds > 0) element.currentTime = room.transport.positionSeconds;
       void obeyTransport();
     });
@@ -80,11 +89,14 @@
     if (!room.connected) playthrough = -1;
   });
 
-  // Pausing and resuming do not restart anything; they only stop and start what
-  // is already loaded.
+  // Pausing and resuming do not restart anything.
   $effect(() => {
     void room.transport.isPlaying;
     void obeyTransport();
+  });
+
+  $effect(() => {
+    if (audio) audio.volume = room.transport.volume;
   });
 
   // Nobody else can know where the audio has reached, so the Player says so
@@ -109,52 +121,147 @@
     refusal={room.refusal}
     onenter={({ secret }) => room.enter({ role: 'player', playerPassword: secret })}
   />
-{:else}
-<main class="flex min-h-dvh flex-col items-center justify-center gap-6 px-6">
-  {#if !started}
+{:else if !started}
+  <main class="flex min-h-dvh flex-col items-center justify-center gap-6 px-6">
     <Button size="lg" class="h-14 rounded-full px-10 text-lg" onclick={start}>
-      <span data-icon="inline-start" class="icon-[ic--round-play-arrow] size-5"></span>
+      <span data-icon="inline-start" class="icon-[ic--round-play-arrow] size-6"></span>
       Start the speaker
     </Button>
     <p class="text-sm text-muted-foreground">Sound comes out of this device only.</p>
-  {:else if nowPlaying}
-    <img
-      src={nowPlaying.song.artworkUrl}
-      alt=""
-      class="aspect-video w-full max-w-2xl rounded-xl object-cover shadow-2xl"
-      class:opacity-40={!room.transport.isPlaying}
-    />
-    <div class="flex flex-col items-center gap-1 text-center">
-      <h1 class="text-2xl font-semibold tracking-tight">{nowPlaying.song.title}</h1>
-      <p class="text-muted-foreground">{nowPlaying.song.author}</p>
-      <p class="mt-2 flex items-center gap-1.5 text-xs text-muted-foreground">
-        {#if room.transport.isPlaying}
-          added by {nowPlaying.addedByNickname}
+  </main>
+{:else}
+  <main class="grid min-h-dvh grid-cols-1 gap-8 p-8 lg:grid-cols-[3fr_2fr] lg:gap-12 lg:p-12">
+    <!-- Read from across a room: artwork first, then the title, then everything else. -->
+    <section class="flex min-w-0 flex-col justify-center gap-6">
+      {#if nowPlaying}
+        <img
+          src={nowPlaying.song.artworkUrl}
+          alt=""
+          class="aspect-video w-full rounded-2xl object-cover shadow-2xl"
+          class:opacity-40={!room.transport.isPlaying}
+        />
+
+        <div class="flex min-w-0 flex-col gap-2">
+          <h1 class="truncate text-4xl font-semibold tracking-tight lg:text-5xl">
+            {nowPlaying.song.title}
+          </h1>
+          <p class="truncate text-xl text-muted-foreground lg:text-2xl">{nowPlaying.song.author}</p>
+          <p class="truncate text-base text-muted-foreground">
+            {#if room.transport.isPlaying}
+              added by {nowPlaying.addedByNickname}
+            {:else}
+              Paused · added by {nowPlaying.addedByNickname}
+            {/if}
+          </p>
+        </div>
+
+        <div class="flex flex-col gap-2">
+          <Progress value={progress.fraction * 100} max={100} />
+          <div class="flex justify-between text-base tabular-nums text-muted-foreground">
+            <span>{asMinutesAndSeconds(progress.seconds)}</span>
+            <span>{asMinutesAndSeconds(nowPlaying.song.durationSeconds)}</span>
+          </div>
+        </div>
+
+        <!-- Whoever's laptop this is, is standing next to it. The icons are sized
+             past what the Button would choose, because this screen is meant to be
+             read, and used, from the other side of a room. -->
+        <div class="flex items-center gap-4">
+          <Button
+            size="icon-lg"
+            class="size-20 rounded-full"
+            onclick={() => (room.transport.isPlaying ? room.pause() : room.resume())}
+            aria-label={room.transport.isPlaying ? 'Pause' : 'Play'}
+          >
+            <span
+              class="size-10 {room.transport.isPlaying
+                ? 'icon-[ic--round-pause]'
+                : 'icon-[ic--round-play-arrow]'}"
+            ></span>
+          </Button>
+          <Button
+            variant="secondary"
+            size="icon-lg"
+            class="size-16 rounded-full"
+            onclick={() => room.skip(nowPlaying.id)}
+            aria-label="Next"
+          >
+            <span class="icon-[ic--round-skip-next] size-8"></span>
+          </Button>
+        </div>
+      {:else}
+        <Empty.Root>
+          <Empty.Header>
+            <Empty.Media variant="icon">
+              <span class="icon-[ic--round-queue-music]"></span>
+            </Empty.Media>
+            <Empty.Title>Queue's empty</Empty.Title>
+            <Empty.Description>Add something from your phone.</Empty.Description>
+          </Empty.Header>
+        </Empty.Root>
+      {/if}
+
+      {#if problem}
+        <Alert.Root variant="destructive">
+          <span class="icon-[ic--round-error-outline]"></span>
+          <Alert.Description>{problem}</Alert.Description>
+        </Alert.Root>
+      {/if}
+    </section>
+
+    <aside class="flex min-w-0 flex-col gap-8 overflow-hidden">
+      <section class="flex min-w-0 flex-col gap-3">
+        <h2 class="text-base uppercase tracking-widest text-muted-foreground">Up next</h2>
+        {#if room.queue.length === 0}
+          <p class="text-lg text-muted-foreground">Nothing waiting.</p>
         {:else}
-          <span class="icon-[ic--round-pause] size-5"></span>
-          Paused
+          <ul class="flex flex-col gap-3">
+            {#each room.queue.slice(0, 5) as track (track.id)}
+              <li class="flex min-w-0 items-center gap-4">
+                <img
+                  src={track.song.artworkUrl}
+                  alt=""
+                  class="h-14 w-[4.5rem] shrink-0 rounded-lg object-cover"
+                />
+                <div class="min-w-0 flex-1">
+                  <p class="truncate text-lg font-medium">{track.song.title}</p>
+                  <p class="truncate text-base text-muted-foreground">
+                    {track.song.author} · {track.addedByNickname}
+                  </p>
+                </div>
+              </li>
+            {/each}
+          </ul>
+          {#if room.queue.length > 5}
+            <p class="text-base text-muted-foreground">
+              and {room.queue.length - 5} more
+            </p>
+          {/if}
         {/if}
-      </p>
-    </div>
-  {:else}
-    <Empty.Root>
-      <Empty.Header>
-        <Empty.Media variant="icon">
-          <span class="icon-[ic--round-queue-music] size-5"></span>
-        </Empty.Media>
-        <Empty.Title>Queue's empty</Empty.Title>
-        <Empty.Description>Add something from your phone.</Empty.Description>
-      </Empty.Header>
-    </Empty.Root>
-  {/if}
+      </section>
 
-  {#if problem}
-    <Alert.Root variant="destructive" class="max-w-md">
-      <span class="icon-[ic--round-error-outline] size-5"></span>
-      <Alert.Description>{problem}</Alert.Description>
-    </Alert.Root>
-  {/if}
+      {#if room.history.length > 0}
+        <section class="flex min-w-0 flex-col gap-2">
+          <h2 class="text-base uppercase tracking-widest text-muted-foreground">Just played</h2>
+          <ul class="flex flex-col gap-1.5">
+            {#each room.history.slice(0, 3) as track (track.id)}
+              <li class="min-w-0 text-muted-foreground">
+                <p class="truncate text-base" class:line-through={track.unplayableReason}>
+                  {track.song.title}
+                </p>
+              </li>
+            {/each}
+          </ul>
+        </section>
+      {/if}
+    </aside>
+  </main>
+{/if}
 
+{#if room.admitted && started}
+  <!-- Kept outside the layout branches so a dropped connection cannot unmount it
+       mid-Track, but never mounted before the speaker is armed: an element with a
+       source will happily open the relay for a Track nobody has started. -->
   <audio
     bind:this={audio}
     src={nowPlaying ? room.streamSrc(nowPlaying) : undefined}
@@ -165,5 +272,4 @@
       if (nowPlaying) room.reportTrackFailed(nowPlaying.id, problem);
     }}
   ></audio>
-</main>
 {/if}

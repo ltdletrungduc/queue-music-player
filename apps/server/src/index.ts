@@ -127,7 +127,12 @@ io.on('connection', (socket) => {
   const role = socket.data.role as Role;
   const query = socket.handshake.query;
   const controllerId = String(query['controllerId'] ?? socket.id);
-  const nickname = String(query['nickname'] ?? 'Guest');
+  /**
+   * The Player is not a person and has no Nickname, but every Transport action
+   * is attributed, so it needs something to be attributed to. Naming it for
+   * what it is beats letting it borrow a guest's name.
+   */
+  const nickname = role === 'player' ? 'The speaker' : String(query['nickname'] ?? 'Guest');
 
   // The Player is a speaker, not a person: it does not appear in the Room.
   // The connection's own id, so a reload cannot make its predecessor's death
@@ -146,14 +151,22 @@ io.on('connection', (socket) => {
   socket.emit('room', room.snapshot());
 
   /**
-   * Shaping the Queue is what the Join Code buys. Holding the Player password
-   * makes a device the speaker, and nothing more: the two gates are separate,
-   * so neither may be used to do the other's job.
+   * Came through the Join Code, and may therefore do everything a person in the
+   * Room may do. Holding the Player password makes a device the speaker instead:
+   * the two gates are separate, so neither does the other's job.
    */
-  const shapesTheQueue = role === 'controller';
+  const isInTheRoom = role === 'controller';
+
+  /**
+   * Stopping, starting and moving on are the three things someone standing at
+   * the speaker reaches for, so the Player may do them from its own screen.
+   * Everything else about the Queue still belongs to the Join Code: holding the
+   * Player password makes a device the speaker, not a member of the Room.
+   */
+  const drivesTheTransport = role === 'controller' || role === 'player';
 
   socket.on('track/add', async (url: unknown, ack?: (result: AddResult) => void) => {
-    if (!shapesTheQueue) return;
+    if (!isInTheRoom) return;
     const effects: Effect[] = [];
     let result: AddResult;
     try {
@@ -199,25 +212,25 @@ io.on('connection', (socket) => {
   });
 
   socket.on('track/moved', (trackId: unknown, afterTrackId: unknown) => {
-    if (!shapesTheQueue || typeof trackId !== 'string') return;
+    if (!isInTheRoom || typeof trackId !== 'string') return;
     if (afterTrackId !== null && typeof afterTrackId !== 'string') return;
     apply(room.dispatch({ type: 'track/moved', trackId, afterTrackId, nickname }));
   });
 
   socket.on('track/play-next', (trackId: unknown) => {
-    if (!shapesTheQueue || typeof trackId !== 'string') return;
+    if (!isInTheRoom || typeof trackId !== 'string') return;
     apply(room.dispatch({ type: 'track/play-next', trackId, nickname }));
   });
 
   socket.on('track/removed', (trackId: unknown) => {
-    if (!shapesTheQueue || typeof trackId !== 'string') return;
+    if (!isInTheRoom || typeof trackId !== 'string') return;
     apply(room.dispatch({ type: 'track/removed', trackId, nickname }));
   });
 
   socket.on(
     'playlist/track-saved',
     (playlistId: unknown, newPlaylistName: unknown, songId: unknown) => {
-      if (!shapesTheQueue || typeof songId !== 'string') return;
+      if (!isInTheRoom || typeof songId !== 'string') return;
       if (playlistId !== null && typeof playlistId !== 'string') return;
 
       // The Song is taken from the Room, not from the caller: a Controller may
@@ -238,34 +251,34 @@ io.on('connection', (socket) => {
   );
 
   socket.on('playlist/renamed', (playlistId: unknown, name: unknown) => {
-    if (!shapesTheQueue || typeof playlistId !== 'string' || typeof name !== 'string') return;
+    if (!isInTheRoom || typeof playlistId !== 'string' || typeof name !== 'string') return;
     apply(room.dispatch({ type: 'playlist/renamed', playlistId, name, nickname }));
   });
 
   socket.on('playlist/loaded', (playlistId: unknown) => {
-    if (!shapesTheQueue || typeof playlistId !== 'string') return;
+    if (!isInTheRoom || typeof playlistId !== 'string') return;
     apply(room.dispatch({ type: 'playlist/loaded', playlistId, nickname }));
   });
 
   socket.on('transport/paused', () => {
-    if (shapesTheQueue) apply(room.dispatch({ type: 'transport/paused', nickname }));
+    if (drivesTheTransport) apply(room.dispatch({ type: 'transport/paused', nickname }));
   });
   socket.on('transport/resumed', () => {
-    if (shapesTheQueue) apply(room.dispatch({ type: 'transport/resumed', nickname }));
+    if (drivesTheTransport) apply(room.dispatch({ type: 'transport/resumed', nickname }));
   });
 
   socket.on('transport/skipped', (trackId: unknown) => {
-    if (!shapesTheQueue || typeof trackId !== 'string') return;
+    if (!drivesTheTransport || typeof trackId !== 'string') return;
     apply(room.dispatch({ type: 'transport/skipped', trackId, nickname }));
   });
 
   socket.on('transport/previous', (trackId: unknown) => {
-    if (!shapesTheQueue || typeof trackId !== 'string') return;
+    if (!isInTheRoom || typeof trackId !== 'string') return;
     apply(room.dispatch({ type: 'transport/previous', trackId, nickname }));
   });
 
   socket.on('transport/volume', (volume: unknown) => {
-    if (!shapesTheQueue || typeof volume !== 'number' || Number.isNaN(volume)) return;
+    if (!isInTheRoom || typeof volume !== 'number' || Number.isNaN(volume)) return;
     apply(room.dispatch({ type: 'transport/volume', volume, nickname }));
   });
 
