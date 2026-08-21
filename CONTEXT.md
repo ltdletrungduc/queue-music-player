@@ -40,8 +40,9 @@ _Avoid_: Username, handle, display name
 
 **Queue**:
 The ordered list of Tracks waiting to play tonight. Shared and editable by every
-Controller, and *consumed*: a Track leaves the Queue when it starts playing.
-_Avoid_: Playlist, tracklist, up next
+Controller, and *consumed*: a Track leaves the Queue when it starts playing. The
+same Track may appear in it any number of times.
+_Avoid_: Playlist, tracklist
 
 **Now Playing**:
 The single Track currently sounding, held in its own slot outside the Queue. It
@@ -55,9 +56,11 @@ nothing else does.
 _Avoid_: Recently played, log, past
 
 **Playlist**:
-A saved, durable collection of Tracks belonging to one person. Loading a Playlist
-*copies* its Tracks into the Queue; the two are independent from that moment on,
-so nothing that happens tonight can change a saved Playlist.
+A saved, durable collection of Tracks, attributed to whoever created it but
+editable by anyone in the Room. A Track appears in a Playlist at most once.
+Loading a Playlist *copies* its Tracks into the Queue; the two are independent
+from that moment on, so nothing that happens tonight can change a saved
+Playlist.
 _Avoid_: Album, collection, saved queue, preset
 
 **Track**:
