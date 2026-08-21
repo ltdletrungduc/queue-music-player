@@ -63,10 +63,17 @@ from that moment on, so nothing that happens tonight can change a saved
 Playlist.
 _Avoid_: Album, collection, saved queue, preset
 
+**Song**:
+A piece of audio at a Source, independent of anywhere it appears. Two Tracks of
+the same Song, whether in the Queue or in different Playlists, refer to one
+Song.
+_Avoid_: Media, video, recording, audio
+
 **Track**:
-One entry in a Queue or a Playlist: a reference to a piece of audio at a Source,
-plus who added it and where it sits in the order.
-_Avoid_: Song, item, entry, media
+One entry in a Queue or a Playlist: a reference to a Song, plus who added it and
+where it sits in the order. A Track is where a Song appears; it is never the
+Song itself.
+_Avoid_: Item, entry, media
 
 **Transport**:
 The Room's playback state — what is in Now Playing, whether it is playing or

@@ -3,10 +3,10 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "concurrently -n server,web -c blue,magenta \"pnpm -F @qmp/server dev\" \"pnpm -F @qmp/web dev\"",
-    "build": "pnpm -F @qmp/web build && pnpm -F @qmp/server build",
+    "dev": "pnpm -F @qmp/shared build && concurrently -n server,web -c blue,magenta \"pnpm -F @qmp/server dev\" \"pnpm -F @qmp/web dev\"",
+    "build": "pnpm -F @qmp/shared build && pnpm -F @qmp/web build && pnpm -F @qmp/server build",
     "test": "pnpm -r test",
-    "typecheck": "pnpm -r typecheck"
+    "typecheck": "pnpm -F @qmp/shared build && pnpm -r typecheck"
   },
   "devDependencies": {
     "concurrently": "^9.1.0",

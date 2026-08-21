@@ -1,31 +1,11 @@
-/**
- * One entry in the Queue: a reference to a piece of audio at a Source, plus who
- * added it and where it sits in the order. Title, duration and artwork arrive
- * with the Source Provider; they are not known yet.
- */
-export type Track = {
-  id: string;
-  source: 'youtube';
-  sourceId: string;
-  /** Fractional index, so a reorder rewrites one row and concurrent drags converge. */
-  orderKey: string;
-  addedByControllerId: string;
-  addedAt: number;
-};
+import type { RoomState, Song } from '@qmp/shared';
 
-export type Controller = {
-  id: string;
-  connectedAt: number;
-};
-
-export type RoomState = {
-  queue: Track[];
-  controllers: Controller[];
-};
+export type { Controller, RoomState, Song, SourceName, Track } from '@qmp/shared';
 
 export type Command =
-  | { type: 'controller/connected'; controllerId: string }
-  | { type: 'controller/disconnected'; controllerId: string };
+  | { type: 'controller/connected'; controllerId: string; nickname: string }
+  | { type: 'controller/disconnected'; controllerId: string }
+  | { type: 'track/added'; song: Song; controllerId: string; nickname: string };
 
 /**
  * Work the reducer wants done but will not do itself, so that it stays pure and

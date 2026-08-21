@@ -1,21 +1,8 @@
 import { io, type Socket } from 'socket.io-client';
-
-/** Mirrors the server's Track. The server owns this shape; keep them in step. */
-export type Track = {
-  id: string;
-  source: string;
-  sourceId: string;
-  orderKey: string;
-  addedByControllerId: string;
-  addedAt: number;
-};
-
-export type RoomState = {
-  queue: Track[];
-  controllers: { id: string; connectedAt: number }[];
-};
+import type { AddResult, RoomState } from '@qmp/shared';
 
 const CONTROLLER_ID_KEY = 'qmp:controllerId';
+const NICKNAME_KEY = 'qmp:nickname';
 
 /** Stable per-device identity, so a reload is the same Controller reconnecting. */
 function controllerId(): string {
@@ -25,6 +12,9 @@ function controllerId(): string {
   localStorage.setItem(CONTROLLER_ID_KEY, fresh);
   return fresh;
 }
+
+/** Choosing a Nickname comes later; until then everyone is a guest. */
+const nickname = () => localStorage.getItem(NICKNAME_KEY) ?? 'Guest';
 
 /** Matches PORT in the server. */
 const SERVER_PORT = 5858;
@@ -41,13 +31,6 @@ export function createRoom() {
   let connected = $state(false);
   let socket: Socket | undefined;
 
-  function connect() {
-    socket = io(serverUrl(), { query: { controllerId: controllerId() } });
-    socket.on('connect', () => (connected = true));
-    socket.on('disconnect', () => (connected = false));
-    socket.on('room', (next: RoomState) => (state = next));
-  }
-
   return {
     get queue() {
       return state.queue;
@@ -58,7 +41,20 @@ export function createRoom() {
     get connected() {
       return connected;
     },
-    connect,
-    disconnect: () => socket?.disconnect()
+
+    connect() {
+      socket = io(serverUrl(), { query: { controllerId: controllerId(), nickname: nickname() } });
+      socket.on('connect', () => (connected = true));
+      socket.on('disconnect', () => (connected = false));
+      socket.on('room', (next: RoomState) => (state = next));
+    },
+
+    disconnect: () => socket?.disconnect(),
+
+    addTrack: (url: string): Promise<AddResult> =>
+      new Promise((resolve) => {
+        if (!socket) return resolve({ ok: false, reason: 'Not connected yet.' });
+        socket.emit('track/add', url, resolve);
+      })
   };
 }
