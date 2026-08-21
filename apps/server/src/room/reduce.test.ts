@@ -65,7 +65,7 @@ describe('a Controller connecting', () => {
   });
 
   it('leaves the Queue alone', () => {
-    const before = withTracks('aaaaaaaaaaa');
+    const before = withTracks('zzzzzzzzzzz', 'aaaaaaaaaaa');
     const { state } = reduce(before, connect('c2'), ctx());
     expect(state.queue).toBe(before.queue);
   });
@@ -93,14 +93,18 @@ describe('a Controller disconnecting', () => {
 });
 
 describe('adding a Track', () => {
-  it('puts it in the Queue', () => {
-    const { state } = reduce(emptyRoom(), add('aaaaaaaaaaa'), ctx());
-    expect(state.queue).toHaveLength(1);
-    expect(state.queue[0]?.song.sourceId).toBe('aaaaaaaaaaa');
+  // The first Track added to an idle Room starts playing, so anything about the
+  // Queue itself is asserted against a Room that is already sounding.
+  const playing = () => withTracks('zzzzzzzzzzz');
+
+  it('puts it in the Queue behind whatever is already playing', () => {
+    const { state } = reduce(playing(), add('aaaaaaaaaaa'), ctx());
+    expect(state.queue.map((t) => t.song.sourceId)).toEqual(['aaaaaaaaaaa']);
+    expect(state.nowPlaying?.song.sourceId).toBe('zzzzzzzzzzz');
   });
 
   it('attributes it to whoever pasted the link', () => {
-    const { state } = reduce(emptyRoom(), add('aaaaaaaaaaa', 'Duc'), ctx(77));
+    const { state } = reduce(playing(), add('aaaaaaaaaaa', 'Duc'), ctx(77));
     expect(state.queue[0]).toMatchObject({
       addedByControllerId: 'c1',
       addedByNickname: 'Duc',
@@ -109,26 +113,30 @@ describe('adding a Track', () => {
   });
 
   it('puts each new Track after the ones already waiting', () => {
-    const state = withTracks('aaaaaaaaaaa', 'bbbbbbbbbbb', 'ccccccccccc');
+    const state = withTracks('zzzzzzzzzzz', 'aaaaaaaaaaa', 'bbbbbbbbbbb', 'ccccccccccc');
     const keys = state.queue.map((t) => t.orderKey);
-    expect(state.queue.map((t) => t.song.sourceId)).toEqual(['aaaaaaaaaaa', 'bbbbbbbbbbb', 'ccccccccccc']);
+    expect(state.queue.map((t) => t.song.sourceId)).toEqual([
+      'aaaaaaaaaaa',
+      'bbbbbbbbbbb',
+      'ccccccccccc'
+    ]);
     expect([...keys].sort()).toEqual(keys);
   });
 
   it('lets the same Song be queued more than once', () => {
-    const state = withTracks('aaaaaaaaaaa', 'aaaaaaaaaaa');
+    const state = withTracks('zzzzzzzzzzz', 'aaaaaaaaaaa', 'aaaaaaaaaaa');
     expect(state.queue).toHaveLength(2);
     expect(state.queue[0]?.song.id).toBe(state.queue[1]?.song.id);
     expect(state.queue[0]?.id).not.toBe(state.queue[1]?.id);
   });
 
   it('tells everyone', () => {
-    const { effects } = reduce(emptyRoom(), add('aaaaaaaaaaa'), ctx());
+    const { effects } = reduce(playing(), add('aaaaaaaaaaa'), ctx());
     expect(effects).toEqual([{ type: 'broadcast-snapshot' }]);
   });
 
   it('gives the Queue a new array, so the Room knows to persist it', () => {
-    const before = emptyRoom();
+    const before = playing();
     const { state } = reduce(before, add('aaaaaaaaaaa'), ctx());
     expect(state.queue).not.toBe(before.queue);
   });
@@ -147,5 +155,85 @@ describe('the reducer itself', () => {
     const a = reduce(emptyRoom(), add('aaaaaaaaaaa'), fixed);
     const b = reduce(emptyRoom(), add('aaaaaaaaaaa'), fixed);
     expect(a).toEqual(b);
+  });
+});
+
+describe('the Queue playing itself', () => {
+  const ended = (state: RoomState): Command => ({
+    type: 'track/ended',
+    trackId: state.nowPlaying?.id ?? 'nothing-is-playing'
+  });
+
+  it('starts the first Track the moment it is added to an idle Room', () => {
+    const { state } = reduce(emptyRoom(), add('aaaaaaaaaaa'), ctx());
+    expect(state.nowPlaying?.song.sourceId).toBe('aaaaaaaaaaa');
+    expect(state.queue).toEqual([]);
+  });
+
+  it('leaves later Tracks waiting rather than interrupting', () => {
+    const state = withTracks('aaaaaaaaaaa', 'bbbbbbbbbbb');
+    expect(state.nowPlaying?.song.sourceId).toBe('aaaaaaaaaaa');
+    expect(state.queue.map((t) => t.song.sourceId)).toEqual(['bbbbbbbbbbb']);
+  });
+
+  it('moves a finished Track into History and starts the next', () => {
+    const before = withTracks('aaaaaaaaaaa', 'bbbbbbbbbbb');
+    const { state } = reduce(before, ended(before), ctx());
+
+    expect(state.nowPlaying?.song.sourceId).toBe('bbbbbbbbbbb');
+    expect(state.history.map((t) => t.song.sourceId)).toEqual(['aaaaaaaaaaa']);
+    expect(state.queue).toEqual([]);
+  });
+
+  it('keeps History most recent first', () => {
+    let state = withTracks('aaaaaaaaaaa', 'bbbbbbbbbbb', 'ccccccccccc');
+    state = reduce(state, ended(state), ctx()).state;
+    state = reduce(state, ended(state), ctx()).state;
+    expect(state.history.map((t) => t.song.sourceId)).toEqual(['bbbbbbbbbbb', 'aaaaaaaaaaa']);
+  });
+
+  it('goes idle when the last Track finishes', () => {
+    const before = withTracks('aaaaaaaaaaa');
+    const { state } = reduce(before, ended(before), ctx());
+
+    expect(state.nowPlaying).toBeNull();
+    expect(state.queue).toEqual([]);
+    expect(state.history).toHaveLength(1);
+  });
+
+  it('starts playing again when something is added to an idle Room', () => {
+    const drained = ((r) => reduce(r, ended(r), ctx()))(withTracks('aaaaaaaaaaa')).state;
+    const { state } = reduce(drained, add('bbbbbbbbbbb'), ctx());
+
+    expect(state.nowPlaying?.song.sourceId).toBe('bbbbbbbbbbb');
+    expect(state.queue).toEqual([]);
+  });
+
+  it('does nothing when told a Track ended in an already idle Room', () => {
+    const idle = emptyRoom();
+    const { state, effects } = reduce(idle, ended(idle), ctx());
+    expect(state).toBe(idle);
+    expect(effects).toEqual([]);
+  });
+
+  it('tells everyone when a Track ends', () => {
+    const { effects } = ((r) => reduce(r, ended(r), ctx()))(withTracks('aaaaaaaaaaa'));
+    expect(effects).toEqual([{ type: 'broadcast-snapshot' }]);
+  });
+
+  it('never puts the same Track in two places at once', () => {
+    const state = ((r) => reduce(r, ended(r), ctx()).state)(withTracks('aaaaaaaaaaa', 'bbbbbbbbbbb'));
+    const ids = [...state.queue, ...state.history, state.nowPlaying]
+      .filter((t) => t !== null)
+      .map((t) => t.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it('ignores a Track ending that is not the one sounding', () => {
+    const before = withTracks('aaaaaaaaaaa', 'bbbbbbbbbbb');
+    const { state, effects } = reduce(before, { type: 'track/ended', trackId: 'some-older-track' }, ctx());
+
+    expect(state).toBe(before);
+    expect(effects).toEqual([]);
   });
 });

@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
+import { Readable } from 'node:stream';
 import { dirname, join, resolve } from 'node:path';
 import Fastify from 'fastify';
 import { Server as SocketServer } from 'socket.io';
@@ -7,7 +8,12 @@ import { createRoomRuntime } from './room/room.js';
 import { addTrackByUrl } from './room/add-track.js';
 import { openRoomStore } from './persistence/room-store.js';
 import { createYouTubeProvider } from './sources/youtube.js';
-import { createInnertubeLookup } from './sources/innertube-lookup.js';
+import {
+  createInnertube,
+  innertubeLookup,
+  innertubeStream,
+  isVerdictAboutTheVideo
+} from './sources/innertube.js';
 import type { Effect } from './room/types.js';
 import type { SourceProvider } from './sources/types.js';
 import type { AddResult } from '@qmp/shared';
@@ -25,10 +31,41 @@ const room = createRoomRuntime(openRoomStore(DB_FILE), { now: Date.now, newId: r
  * provider already has something sensible to say when it cannot be reached.
  */
 let providers: Promise<SourceProvider[]> | undefined;
-const sources = () => (providers ??= createInnertubeLookup().then((l) => [createYouTubeProvider(l)]));
+const sources = () =>
+  (providers ??= createInnertube().then((yt) => [
+    createYouTubeProvider(innertubeLookup(yt), innertubeStream(yt))
+  ]));
+const forgetSources = () => void (providers = undefined);
 
 const app = Fastify({ logger: false });
 app.get('/health', async () => ({ ok: true }));
+
+/**
+ * The Player's audio element pulls from here. The bytes come from the Extractor
+ * rather than from YouTube directly, because YouTube serves audio over SABR and
+ * no media element can speak it. See ADR-0002.
+ */
+app.get<{ Params: { songId: string } }>('/stream/:songId', async (request, reply) => {
+  const song = room.findSong(request.params.songId);
+  if (!song) return reply.code(404).send({ reason: 'That Song is not in the Room.' });
+
+  const provider = (await sources()).find((p) => p.source === song.source);
+  if (!provider) return reply.code(404).send({ reason: 'Nothing here can play that Song.' });
+
+  try {
+    const stream = await provider.resolve(song);
+    return reply
+      .header('Content-Type', stream.contentType)
+      .header('Cache-Control', 'no-store')
+      .send(Readable.fromWeb(stream.body as Parameters<typeof Readable.fromWeb>[0]));
+  } catch (error) {
+    // A verdict about this one video says nothing about the session; anything
+    // else might mean the session itself is spent.
+    if (!isVerdictAboutTheVideo(error)) forgetSources();
+    request.log.error(error);
+    return reply.code(502).send({ reason: 'Could not open that Song.' });
+  }
+});
 
 await app.listen({ port: PORT, host: HOST });
 
@@ -61,12 +98,18 @@ io.on('connection', (socket) => {
         { url: typeof url === 'string' ? url : '', controllerId, nickname }
       );
     } catch {
-      // Reaching the Source failed before any provider could answer.
-      providers = undefined;
+      forgetSources();
       result = { ok: false, reason: 'Could not reach YouTube. Try again.' };
     }
     apply(effects);
     ack?.(result);
+  });
+
+  // Only the Player knows a Track has finished, and it must say which one:
+  // a reconnecting Player can otherwise end a Track that already ended.
+  socket.on('track/ended', (trackId: unknown) => {
+    if (typeof trackId !== 'string') return;
+    apply(room.dispatch({ type: 'track/ended', trackId }));
   });
 
   socket.on('disconnect', () => apply(room.dispatch({ type: 'controller/disconnected', controllerId })));

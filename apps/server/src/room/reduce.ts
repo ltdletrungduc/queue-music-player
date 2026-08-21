@@ -1,10 +1,21 @@
 import { generateKeyBetween } from 'fractional-indexing';
-import type { Command, Ctx, Reduced, RoomState } from './types.js';
-
-export const emptyRoom = (): RoomState => ({ queue: [], controllers: [] });
+export { emptyRoom } from '@qmp/shared';
+import type { Command, Ctx, Reduced, RoomState, Track } from './types.js';
 
 const unchanged = (state: RoomState): Reduced => ({ state, effects: [] });
 const broadcast = (state: RoomState): Reduced => ({ state, effects: [{ type: 'broadcast-snapshot' }] });
+
+/**
+ * Nothing sounds while the Room is idle, so the moment a Track is waiting it is
+ * pulled out of the Queue and into Now Playing. This is what makes adding to an
+ * empty Queue start the music without anyone pressing anything.
+ */
+function startNextIfIdle(state: RoomState): RoomState {
+  if (state.nowPlaying !== null) return state;
+  const [next, ...rest] = state.queue;
+  if (!next) return state;
+  return { ...state, nowPlaying: next, queue: rest };
+}
 
 export function reduce(state: RoomState, command: Command, ctx: Ctx): Reduced {
   switch (command.type) {
@@ -28,21 +39,31 @@ export function reduce(state: RoomState, command: Command, ctx: Ctx): Reduced {
     }
 
     case 'track/added': {
+      // Ordering spans the Queue only; Now Playing has left it.
       const last = state.queue.at(-1)?.orderKey ?? null;
-      return broadcast({
-        ...state,
-        queue: [
-          ...state.queue,
-          {
-            id: ctx.newId(),
-            song: command.song,
-            orderKey: generateKeyBetween(last, null),
-            addedByControllerId: command.controllerId,
-            addedByNickname: command.nickname,
-            addedAt: ctx.now
-          }
-        ]
-      });
+      const track: Track = {
+        id: ctx.newId(),
+        song: command.song,
+        orderKey: generateKeyBetween(last, null),
+        addedByControllerId: command.controllerId,
+        addedByNickname: command.nickname,
+        addedAt: ctx.now
+      };
+      return broadcast(startNextIfIdle({ ...state, queue: [...state.queue, track] }));
+    }
+
+    case 'track/ended': {
+      const finished = state.nowPlaying;
+      // A Player that reconnects, or a second one, can report a Track that has
+      // already been dealt with. Only the Track actually sounding may end.
+      if (!finished || finished.id !== command.trackId) return unchanged(state);
+      return broadcast(
+        startNextIfIdle({
+          ...state,
+          nowPlaying: null,
+          history: [finished, ...state.history]
+        })
+      );
     }
   }
 }

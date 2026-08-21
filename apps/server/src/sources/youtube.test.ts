@@ -32,6 +32,12 @@ const lookup =
   async () =>
     result;
 
+const neverStreams = async () => {
+  throw new Error('validating should never open a Stream');
+};
+
+const providerWith = (songs: SongLookup) => createYouTubeProvider(songs, neverStreams);
+
 const found = {
   title: 'Never Gonna Give You Up',
   author: 'Rick Astley',
@@ -41,7 +47,7 @@ const found = {
 
 describe('validating a YouTube link', () => {
   it('describes the Song behind a good link', async () => {
-    const provider = createYouTubeProvider(lookup(found));
+    const provider = providerWith(lookup(found));
     const result = await provider.validate('https://youtu.be/dQw4w9WgXcQ');
 
     expect(result).toEqual({
@@ -51,7 +57,7 @@ describe('validating a YouTube link', () => {
   });
 
   it('identifies the same Song by the same name whichever link form was pasted', async () => {
-    const provider = createYouTubeProvider(lookup(found));
+    const provider = providerWith(lookup(found));
     const short = await provider.validate('https://youtu.be/dQw4w9WgXcQ');
     const long = await provider.validate('https://www.youtube.com/watch?v=dQw4w9WgXcQ&t=9');
 
@@ -59,7 +65,7 @@ describe('validating a YouTube link', () => {
   });
 
   it('refuses a link that is not YouTube at all', async () => {
-    const provider = createYouTubeProvider(lookup(found));
+    const provider = providerWith(lookup(found));
     expect(await provider.validate('https://example.test/song')).toEqual({
       ok: false,
       reason: "That doesn't look like a YouTube link."
@@ -67,7 +73,7 @@ describe('validating a YouTube link', () => {
   });
 
   it('refuses a video that is not there', async () => {
-    const provider = createYouTubeProvider(lookup(null));
+    const provider = providerWith(lookup(null));
     expect(await provider.validate('https://youtu.be/dQw4w9WgXcQ')).toEqual({
       ok: false,
       reason: "That video is private, deleted, or doesn't exist."
@@ -75,7 +81,7 @@ describe('validating a YouTube link', () => {
   });
 
   it('refuses a video whose length YouTube did not report', async () => {
-    const provider = createYouTubeProvider(lookup({ ...found, durationSeconds: null }));
+    const provider = providerWith(lookup({ ...found, durationSeconds: null }));
     expect(await provider.validate('https://youtu.be/dQw4w9WgXcQ')).toEqual({
       ok: false,
       reason: "Couldn't read how long that video is."
@@ -83,7 +89,7 @@ describe('validating a YouTube link', () => {
   });
 
   it('refuses a live stream, which has no duration to queue', async () => {
-    const provider = createYouTubeProvider(lookup({ ...found, durationSeconds: 0 }));
+    const provider = providerWith(lookup({ ...found, durationSeconds: 0 }));
     const result = await provider.validate('https://youtu.be/dQw4w9WgXcQ');
     expect(result).toEqual({ ok: false, reason: 'Live streams cannot be queued.' });
   });
@@ -91,7 +97,7 @@ describe('validating a YouTube link', () => {
   it('says so plainly when the Source cannot be reached', async () => {
     const provider = createYouTubeProvider(async () => {
       throw new Error('socket hang up');
-    });
+    }, neverStreams);
     expect(await provider.validate('https://youtu.be/dQw4w9WgXcQ')).toEqual({
       ok: false,
       reason: 'Could not reach YouTube. Try again.'

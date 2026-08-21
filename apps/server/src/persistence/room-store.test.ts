@@ -69,17 +69,42 @@ describe('a Room store', () => {
     });
     store.close();
 
-    expect(countRows(file, 'queue_tracks')).toBe(3);
+    expect(countRows(file, 'tracks')).toBe(3);
     expect(countRows(file, 'songs')).toBe(2);
   });
 
   it('does not bring Controllers back, because they reconnect for themselves', () => {
     const store = openRoomStore(tempFile());
     saveRoom(store, {
+      ...emptyRoom(),
       queue: [track('t1', 'a0')],
       controllers: [{ id: 'c1', nickname: 'Duc', connectedAt: 1 }]
     });
     expect(loadRoom(store).controllers).toEqual([]);
+  });
+
+  it('remembers what was playing, so a restart does not lose the place', () => {
+    const store = openRoomStore(tempFile());
+    const before = {
+      ...emptyRoom(),
+      nowPlaying: track('playing', 'a1'),
+      queue: [track('waiting', 'a2')],
+      history: [track('done', 'a0')]
+    };
+    saveRoom(store, before);
+    expect(loadRoom(store)).toEqual(before);
+  });
+
+  it('keeps History most recent first across a restart', () => {
+    const store = openRoomStore(tempFile());
+    saveRoom(store, { ...emptyRoom(), history: [track('recent', 'a2'), track('older', 'a1')] });
+    expect(loadRoom(store).history.map((t) => t.id)).toEqual(['recent', 'older']);
+  });
+
+  it('keeps a Song that is only in History', () => {
+    const store = openRoomStore(tempFile());
+    saveRoom(store, { ...emptyRoom(), history: [track('done', 'a0')] });
+    expect(loadRoom(store).history[0]?.song.title).toBe('Title done');
   });
 
   it('replaces the previous Queue rather than accumulating', () => {

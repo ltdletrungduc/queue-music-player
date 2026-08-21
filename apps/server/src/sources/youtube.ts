@@ -1,5 +1,5 @@
 import type { Song } from '@qmp/shared';
-import type { SourceProvider, Validation } from './types.js';
+import type { SourceProvider, Stream, Validation } from './types.js';
 
 const HOSTS = new Set(['youtube.com', 'www.youtube.com', 'm.youtube.com', 'music.youtube.com']);
 const SHORT_HOSTS = new Set(['youtu.be', 'www.youtu.be']);
@@ -32,8 +32,12 @@ export type SongLookup = (videoId: string) => Promise<{
   artworkUrl: string;
 } | null>;
 
-export function createYouTubeProvider(lookup: SongLookup): SourceProvider {
+/** Opens the audio of a video. Separate from metadata: far more expensive, and only the Player needs it. */
+export type StreamLookup = (videoId: string) => Promise<Stream>;
+
+export function createYouTubeProvider(lookup: SongLookup, openStream: StreamLookup): SourceProvider {
   return {
+    source: 'youtube',
     matches: (url) => youtubeVideoId(url) !== null,
 
     async validate(url): Promise<Validation> {
@@ -62,6 +66,8 @@ export function createYouTubeProvider(lookup: SongLookup): SourceProvider {
         durationSeconds: found.durationSeconds
       };
       return { ok: true, song };
-    }
+    },
+
+    resolve: (song) => openStream(song.sourceId)
   };
 }

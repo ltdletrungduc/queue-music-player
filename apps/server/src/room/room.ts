@@ -1,10 +1,12 @@
 import { reduce } from './reduce.js';
 import { loadRoom, saveRoom, type RoomStore } from '../persistence/room-store.js';
-import type { Command, Effect, RoomState } from './types.js';
+import type { Command, Effect, RoomState, Song } from './types.js';
 
 export type RoomRuntime = {
   /** The current Room, as sent to Controllers. */
   snapshot: () => RoomState;
+  /** A Song the Room knows about, wherever the Track holding it happens to sit. */
+  findSong: (songId: string) => Song | undefined;
   dispatch: (command: Command) => Effect[];
 };
 
@@ -23,6 +25,10 @@ export function createRoomRuntime(store: RoomStore, clock: Clock): RoomRuntime {
 
   return {
     snapshot: () => room,
+
+    findSong: (songId) =>
+      [room.nowPlaying, ...room.queue, ...room.history].find((t) => t?.song.id === songId)?.song,
+
     dispatch(command) {
       const { state, effects } = reduce(room, command, { now: clock.now(), newId: clock.newId });
       // Controllers coming and going never touch the Queue, and the Queue is all

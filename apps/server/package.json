@@ -16,7 +16,8 @@
     "socket.io": "^4.8.1",
     "@qmp/shared": "workspace:*",
     "youtubei.js": "^18.0.0",
-    "fractional-indexing": "^3.2.0"
+    "fractional-indexing": "^3.2.0",
+    "googlevideo": "^4.1.1"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.12",

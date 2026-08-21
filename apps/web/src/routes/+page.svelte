@@ -59,6 +59,27 @@
     <p role="alert" class="mb-4 rounded-lg bg-red-950/60 px-3 py-2 text-sm text-red-200">{problem}</p>
   {/if}
 
+  {#if room.nowPlaying}
+    <section class="mb-5 flex items-center gap-3 rounded-lg bg-neutral-900 p-3 ring-1 ring-neutral-800">
+      <img
+        src={room.nowPlaying.song.artworkUrl}
+        alt=""
+        width="72"
+        height="54"
+        class="h-14 w-18 shrink-0 rounded object-cover"
+      />
+      <div class="min-w-0 flex-1">
+        <p class="text-[0.6875rem] uppercase tracking-wider text-neutral-500">Now playing</p>
+        <p class="truncate text-sm font-medium">{room.nowPlaying.song.title}</p>
+        <p class="truncate text-xs text-neutral-500">
+          {room.nowPlaying.song.author} · added by {room.nowPlaying.addedByNickname}
+        </p>
+      </div>
+    </section>
+  {/if}
+
+  <h2 class="mb-2 text-xs uppercase tracking-wider text-neutral-500">Up next</h2>
+
   {#if room.queue.length === 0}
     <p class="rounded-lg border border-dashed border-neutral-800 px-4 py-10 text-center text-sm text-neutral-500">
       Nothing queued yet.

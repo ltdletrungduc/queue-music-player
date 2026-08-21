@@ -50,8 +50,12 @@ describe('adding a Track by pasting a link', () => {
 
   it('hands the link to the Source that recognises it', async () => {
     const other: SourceProvider = {
+      source: 'youtube',
       matches: () => false,
       validate: async () => {
+        throw new Error('should never be asked');
+      },
+      resolve: async () => {
         throw new Error('should never be asked');
       }
     };

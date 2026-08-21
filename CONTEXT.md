@@ -47,7 +47,7 @@ _Avoid_: Playlist, tracklist
 **Now Playing**:
 The single Track currently sounding, held in its own slot outside the Queue. It
 cannot be removed or reordered — only skipped — because it is no longer part of
-any list.
+any list. A Room with nothing in Now Playing is idle.
 _Avoid_: Current track, head, active track
 
 **History**:
@@ -94,9 +94,9 @@ reference into a playable Stream.
 _Avoid_: Connector, driver, integration
 
 **Stream**:
-A playable, time-limited audio URL resolved from a Track. Streams expire and are
-re-resolved; a Track outlives every Stream made from it.
-_Avoid_: Link, media URL, file
+The audio of a Song, as bytes the Player can play. Resolved afresh whenever it
+is needed and never stored; a Song outlives every Stream made from it.
+_Avoid_: Link, URL, file, download
 
 **Extractor**:
 The service that resolves Tracks into Streams for the Player. It is the only part
