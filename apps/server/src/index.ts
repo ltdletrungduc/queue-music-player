@@ -146,6 +146,9 @@ const io = new SocketServer(app.server, {
 function apply(effects: Effect[]): void {
   for (const effect of effects) {
     if (effect.type === 'broadcast-snapshot') io.emit('room', room.snapshot());
+    if (effect.type === 'broadcast-position') {
+      io.emit('position', effect.trackId, effect.positionSeconds, effect.reportedAt);
+    }
   }
 }
 
@@ -165,7 +168,7 @@ io.use((socket, next) => {
     admission.role === 'player' &&
     !isFromThisMachine(socket.handshake.address, socket.handshake.headers)
   ) {
-    return next(new Error('The speaker can only be this machine.'));
+    return next(new Error('Open the Player on the machine connected to the speaker.'));
   }
 
   socket.data.role = admission.role;
@@ -191,6 +194,17 @@ io.on('connection', (socket) => {
   if (role === 'controller') {
     apply(room.dispatch({ type: 'controller/connected', controllerId, connectionId, nickname }));
   } else {
+    // One speaker means one Player, and two of them means the same Track twice,
+    // slightly apart. A second arrival is nearly always this machine coming back
+    // before the server has noticed the old socket die, so the newcomer takes
+    // the speaker and the stale one is let go. Refusing the newcomer instead
+    // would strand a Player that dropped on bad wifi and came straight back:
+    // nothing could take the speaker until the dead socket timed out.
+    for (const other of io.sockets.sockets.values()) {
+      if (other.id === socket.id || other.data.role !== 'player') continue;
+      other.emit('let-go', 'Another Player took the speaker.');
+      other.disconnect(true);
+    }
     apply(room.dispatch({ type: 'player/connected', connectionId }));
     const ticket = randomBytes(24).toString('base64url');
     streamTickets.add(ticket);
@@ -207,12 +221,16 @@ io.on('connection', (socket) => {
   const isInTheRoom = role === 'controller';
 
   /**
-   * Stopping, starting and moving on are the three things someone standing at
-   * the speaker reaches for, so the Player may do them from its own screen.
-   * Everything else about the Queue still belongs to the Join Code: holding the
-   * Player password makes a device the speaker, not a member of the Room.
+   * Stopping, starting, moving on and the volume are what someone standing at
+   * the speaker reaches for, and they belong to the Player alone. Shaping what
+   * comes next — adding, reordering, removing — still belongs to the Join Code:
+   * holding the Player password makes a device the speaker, not a member of the
+   * Room. See ADR-0001.
+   *
+   * The buttons are gone from the Controller's screen and so is the permission.
+   * A missing button is not a rule.
    */
-  const drivesTheTransport = role === 'controller' || role === 'player';
+  const drivesTheTransport = role === 'player';
 
   socket.on('track/add', async (url: unknown, ack?: (result: AddResult) => void) => {
     if (!isInTheRoom) return;
@@ -322,12 +340,12 @@ io.on('connection', (socket) => {
   });
 
   socket.on('transport/previous', (trackId: unknown) => {
-    if (!isInTheRoom || typeof trackId !== 'string') return;
+    if (!drivesTheTransport || typeof trackId !== 'string') return;
     apply(room.dispatch({ type: 'transport/previous', trackId, nickname }));
   });
 
   socket.on('transport/volume', (volume: unknown) => {
-    if (!isInTheRoom || typeof volume !== 'number' || Number.isNaN(volume)) return;
+    if (!drivesTheTransport || typeof volume !== 'number' || Number.isNaN(volume)) return;
     apply(room.dispatch({ type: 'transport/volume', volume, nickname }));
   });
 

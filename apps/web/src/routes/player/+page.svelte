@@ -3,8 +3,10 @@
   import JoinForm from '$lib/components/join-form.svelte';
   import * as Alert from '$lib/components/ui/alert';
   import { Button } from '$lib/components/ui/button';
+  import * as Card from '$lib/components/ui/card';
   import * as Empty from '$lib/components/ui/empty';
   import { Progress } from '$lib/components/ui/progress';
+  import { Slider } from '$lib/components/ui/slider';
   import { createRoom } from '$lib/room.svelte';
   import { createProgress } from '$lib/progress.svelte';
   import { keepAwakeWhile } from '$lib/keep-awake.svelte';
@@ -18,6 +20,18 @@
   onDestroy(room.leave);
 
   let audio = $state<HTMLAudioElement | null>(null);
+
+  /**
+   * The slider belongs to whoever is dragging it until they let go. Binding it
+   * straight to the Room snaps the handle back when the next snapshot lands.
+   */
+  let volumeDraft = $state<number | null>(null);
+  const volume = $derived(volumeDraft ?? room.transport.volume);
+
+  function setVolume(next: number) {
+    volumeDraft = next;
+    room.setVolume(next);
+  }
   let started = $state(false);
   let problem = $state('');
 
@@ -105,14 +119,15 @@
   // within minutes.
   keepAwakeWhile(() => started && room.transport.isPlaying);
 
-  // The same three things the on-screen buttons do, on the machine's own media
-  // keys and lock screen.
+  // The same things the on-screen buttons do, on the machine's own media keys
+  // and lock screen.
   publishToMediaSession({
     nowPlaying: () => (started ? room.nowPlaying : null),
     isPlaying: () => room.transport.isPlaying,
     onPause: room.pause,
     onResume: room.resume,
-    onNext: () => room.nowPlaying && room.skip(room.nowPlaying.id)
+    onNext: () => room.nowPlaying && room.skip(room.nowPlaying.id),
+    onPrevious: () => room.nowPlaying && room.previous(room.nowPlaying.id)
   });
 
   // Nobody else can know where the audio has reached, so the Player says so
@@ -184,6 +199,15 @@
              read, and used, from the other side of a room. -->
         <div class="flex items-center gap-4">
           <Button
+            variant="secondary"
+            size="icon-lg"
+            class="size-16 rounded-full"
+            onclick={() => room.previous(nowPlaying.id)}
+            aria-label="Previous"
+          >
+            <span class="icon-[ic--round-skip-previous] size-8"></span>
+          </Button>
+          <Button
             size="icon-lg"
             class="size-20 rounded-full"
             onclick={() => (room.transport.isPlaying ? room.pause() : room.resume())}
@@ -204,6 +228,24 @@
           >
             <span class="icon-[ic--round-skip-next] size-8"></span>
           </Button>
+        </div>
+
+        <!-- The speaker's own dial is across the room from whoever is holding a
+             phone, so the volume lives here, on the machine making the sound. -->
+        <div class="flex items-center gap-4">
+          <span class="icon-[ic--round-volume-down] size-6 shrink-0 text-muted-foreground"></span>
+          <Slider
+            type="single"
+            value={volume}
+            min={0}
+            max={1}
+            step={0.05}
+            onValueChange={setVolume}
+            onValueCommit={() => (volumeDraft = null)}
+            aria-label="Volume"
+            class="flex-1"
+          />
+          <span class="icon-[ic--round-volume-up] size-6 shrink-0 text-muted-foreground"></span>
         </div>
       {:else}
         <Empty.Root>
@@ -233,18 +275,21 @@
         {:else}
           <ul class="flex flex-col gap-3">
             {#each room.queue.slice(0, 5) as track (track.id)}
-              <li class="flex min-w-0 items-center gap-4">
-                <img
-                  src={track.song.artworkUrl}
-                  alt=""
-                  class="h-14 w-[4.5rem] shrink-0 rounded-lg object-cover"
-                />
-                <div class="min-w-0 flex-1">
-                  <p class="truncate text-lg font-medium">{track.song.title}</p>
-                  <p class="truncate text-base text-muted-foreground">
-                    {track.song.author} · {track.addedByNickname}
-                  </p>
-                </div>
+              <li>
+                <Card.Root
+                  data-size="sm"
+                  class="flex min-w-0 flex-row items-center gap-4 p-3"
+                >
+                  <img
+                    src={track.song.artworkUrl}
+                    alt=""
+                    class="h-14 w-[4.5rem] shrink-0 rounded-lg object-cover"
+                  />
+                  <div class="min-w-0 flex-1">
+                    <p class="truncate text-lg font-medium">{track.song.title}</p>
+                    <p class="truncate text-base text-muted-foreground">{track.song.author}</p>
+                  </div>
+                </Card.Root>
               </li>
             {/each}
           </ul>
@@ -259,12 +304,28 @@
       {#if room.history.length > 0}
         <section class="flex min-w-0 flex-col gap-2">
           <h2 class="text-base uppercase tracking-widest text-muted-foreground">Just played</h2>
-          <ul class="flex flex-col gap-1.5">
+          <ul class="flex flex-col gap-3">
             {#each room.history.slice(0, 3) as track (track.id)}
-              <li class="min-w-0 text-muted-foreground">
-                <p class="truncate text-base" class:line-through={track.unplayableReason}>
-                  {track.song.title}
-                </p>
+              <li>
+                <Card.Root
+                  data-size="sm"
+                  class="flex min-w-0 flex-row items-center gap-4 p-3 opacity-60"
+                >
+                  <img
+                    src={track.song.artworkUrl}
+                    alt=""
+                    class="h-14 w-[4.5rem] shrink-0 rounded-lg object-cover"
+                  />
+                  <div class="min-w-0 flex-1">
+                    <p
+                      class="truncate text-lg font-medium"
+                      class:line-through={track.unplayableReason}
+                    >
+                      {track.song.title}
+                    </p>
+                    <p class="truncate text-base text-muted-foreground">{track.song.author}</p>
+                  </div>
+                </Card.Root>
               </li>
             {/each}
           </ul>

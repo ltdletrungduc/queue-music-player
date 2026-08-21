@@ -6,6 +6,7 @@ type Controls = {
   onPause: () => void;
   onResume: () => void;
   onNext: () => void;
+  onPrevious: () => void;
 };
 
 /**
@@ -48,9 +49,10 @@ export function publishToMediaSession(controls: Controls) {
     navigator.mediaSession.setActionHandler('play', controls.onResume);
     navigator.mediaSession.setActionHandler('pause', controls.onPause);
     navigator.mediaSession.setActionHandler('nexttrack', controls.onNext);
+    navigator.mediaSession.setActionHandler('previoustrack', controls.onPrevious);
 
     return () => {
-      for (const action of ['play', 'pause', 'nexttrack'] as const) {
+      for (const action of ['play', 'pause', 'nexttrack', 'previoustrack'] as const) {
         navigator.mediaSession.setActionHandler(action, null);
       }
     };

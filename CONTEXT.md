@@ -27,9 +27,11 @@ Transport still says what the Room wants, waiting for something to carry it out.
 _Avoid_: Host, DJ, master, sink, output device
 
 **Controller**:
-A person connected to the Room from their own device, who can shape the Queue
-and drive the Transport but receives no audio. Controllers are not accounts; they
-do not persist beyond the browser that created them.
+A person connected to the Room from their own device, who can shape the Queue —
+add to it, reorder it, remove from it — but receives no audio and does not drive
+the Transport. Playing, pausing, skipping and volume belong to the Player, which
+is the machine standing in the room with the speaker. Controllers are not
+accounts; they do not persist beyond the browser that created them.
 _Avoid_: User, listener, member, guest, remote
 
 **Nickname**:

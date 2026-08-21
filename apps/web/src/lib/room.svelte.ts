@@ -14,11 +14,35 @@ export type Entry =
 /** Outside the door, waiting at it, or in. */
 export type Standing = 'outside' | 'knocking' | 'inside';
 
+/**
+ * A v4 UUID, without needing a secure context.
+ *
+ * crypto.randomUUID is only defined on HTTPS and on localhost. The Room is
+ * reached over plain http at a LAN address all the time — a phone opening
+ * http://192.168.x.x is precisely the device this identity exists for, and
+ * precisely where randomUUID is missing. getRandomValues carries no such
+ * restriction, so the randomness behind the fallback is the same.
+ */
+function uuid(): string {
+  if (typeof crypto.randomUUID === 'function') return crypto.randomUUID();
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+  return [
+    hex.slice(0, 8),
+    hex.slice(8, 12),
+    hex.slice(12, 16),
+    hex.slice(16, 20),
+    hex.slice(20)
+  ].join('-');
+}
+
 /** Stable per-device identity, so a reload is the same Controller reconnecting. */
 function controllerId(): string {
   const existing = localStorage.getItem(CONTROLLER_ID_KEY);
   if (existing) return existing;
-  const fresh = crypto.randomUUID();
+  const fresh = uuid();
   localStorage.setItem(CONTROLLER_ID_KEY, fresh);
   return fresh;
 }
@@ -155,8 +179,21 @@ export function createRoom() {
         refusal = error.message || 'Could not reach the Room.';
       });
 
+      // The Room can let a connection go deliberately — a second Player taking
+      // the speaker is the only thing that does it. Socket.IO does not retry
+      // after a server-side disconnect, so the reason is kept and shown rather
+      // than leaving the page knocking at a door nobody is going to answer.
+      let letGo: string | null = null;
+      socket.on('let-go', (reason: string) => (letGo = reason));
+
       socket.on('disconnect', (reason: string) => {
         if (reason === 'io client disconnect') return;
+        if (reason === 'io server disconnect') {
+          standing = 'outside';
+          admitted = false;
+          refusal = letGo ?? 'The Room let this connection go.';
+          return;
+        }
         standing = 'knocking';
       });
 
@@ -165,6 +202,19 @@ export function createRoom() {
           positionHeardAt = Date.now();
         }
         state = next;
+      });
+
+      /**
+       * The Player's position, on its own.
+       *
+       * Only the Transport is touched. Replacing the whole Room once a second —
+       * which is what this used to be — handed every list a new array each time
+       * and made the browser refetch artwork that had not changed.
+       */
+      socket.on('position', (trackId: string, positionSeconds: number, reportedAt: number) => {
+        if (state.nowPlaying?.id !== trackId) return;
+        state.transport = { ...state.transport, positionSeconds, positionReportedAt: reportedAt };
+        positionHeardAt = Date.now();
       });
     },
 

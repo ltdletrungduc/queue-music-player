@@ -13,7 +13,6 @@
   import * as InputGroup from '$lib/components/ui/input-group';
   import { Progress } from '$lib/components/ui/progress';
   import { Separator } from '$lib/components/ui/separator';
-  import { Slider } from '$lib/components/ui/slider';
   import JoinForm from '$lib/components/join-form.svelte';
   import SaveToPlaylist from '$lib/components/save-to-playlist.svelte';
   import { createRoom, remembered } from '$lib/room.svelte';
@@ -102,18 +101,6 @@
     isPlaying: room.transport.isPlaying,
     durationSeconds: room.nowPlaying?.song.durationSeconds ?? 0
   }));
-
-  /**
-   * The slider is this phone's until the finger lifts. The Room rebroadcasts
-   * every second, and binding straight to it snaps the handle back mid-drag.
-   */
-  let volumeDraft = $state<number | null>(null);
-  const volume = $derived(volumeDraft ?? room.transport.volume);
-
-  function setVolume(next: number) {
-    volumeDraft = next;
-    room.setVolume(next);
-  }
 
   const save = (songId: string) => (playlistId: string | null, newName: string | null) =>
     room.saveToPlaylist(playlistId, newName, songId);
@@ -213,48 +200,9 @@
             <span>{asMinutesAndSeconds(track.song.durationSeconds)}</span>
           </div>
         </div>
-
-        <div class="flex items-center justify-center gap-2">
-          <Button variant="ghost" size="icon-lg" class="size-12" onclick={() => room.previous(track.id)} aria-label="Previous">
-            <span class="icon-[ic--round-skip-previous] size-5"></span>
-          </Button>
-          <Button
-            size="icon-lg"
-            class="size-14 rounded-full"
-            onclick={() => (room.transport.isPlaying ? room.pause() : room.resume())}
-            aria-label={room.transport.isPlaying ? 'Pause' : 'Play'}
-          >
-            <span
-              class="size-7 {room.transport.isPlaying
-                ? 'icon-[ic--round-pause]'
-                : 'icon-[ic--round-play-arrow]'}"
-            ></span>
-          </Button>
-          <Button variant="ghost" size="icon-lg" class="size-12" onclick={() => room.skip(track.id)} aria-label="Skip">
-            <span class="icon-[ic--round-skip-next] size-5"></span>
-          </Button>
-        </div>
       </Card.Content>
     </Card.Root>
   {/if}
-
-  <div class="flex items-center gap-3">
-    <span class="icon-[ic--round-volume-up] size-5 shrink-0 text-muted-foreground"></span>
-    <Slider
-      type="single"
-      value={volume}
-      min={0}
-      max={1}
-      step={0.05}
-      onValueChange={setVolume}
-      onValueCommit={() => (volumeDraft = null)}
-      aria-label="App volume"
-      class="flex-1"
-    />
-  </div>
-  <p class="-mt-2 text-[0.6875rem] text-muted-foreground">
-    App volume — the speaker's own dial is out of reach from here
-  </p>
 
   {#if room.lastAction}
     <p class="text-center text-xs text-muted-foreground">

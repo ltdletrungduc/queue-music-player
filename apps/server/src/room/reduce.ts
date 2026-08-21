@@ -454,14 +454,24 @@ export function reduce(state: RoomState, command: Command, ctx: Ctx): Reduced {
       // A report about a Track that has already moved on would drag the progress
       // bar backwards into a Track nobody is hearing.
       if (state.nowPlaying?.id !== command.trackId) return unchanged(state);
-      return broadcast({
-        ...state,
-        transport: {
-          ...state.transport,
-          positionSeconds: command.positionSeconds,
-          positionReportedAt: ctx.now
-        }
-      });
+      return {
+        state: {
+          ...state,
+          transport: {
+            ...state.transport,
+            positionSeconds: command.positionSeconds,
+            positionReportedAt: ctx.now
+          }
+        },
+        effects: [
+          {
+            type: 'broadcast-position',
+            trackId: command.trackId,
+            positionSeconds: command.positionSeconds,
+            reportedAt: ctx.now
+          }
+        ]
+      };
     }
   }
 }

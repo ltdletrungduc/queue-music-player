@@ -44,7 +44,17 @@ export type Command =
  * Work the reducer wants done but will not do itself, so that it stays pure and
  * every side effect is observable in tests as plain data.
  */
-export type Effect = { type: 'broadcast-snapshot' };
+export type Effect =
+  | { type: 'broadcast-snapshot' }
+  /**
+   * Where the audio has reached, and nothing else.
+   *
+   * The Player says so every second. Sending the whole Room that often replaced
+   * the Queue, the History and the Playlists on every Controller once a second,
+   * which re-rendered lists that had not changed and made the browser fetch
+   * every thumbnail again.
+   */
+  | { type: 'broadcast-position'; trackId: string; positionSeconds: number; reportedAt: number };
 
 /** Everything the reducer would otherwise reach into the world for. */
 export type Ctx = {
