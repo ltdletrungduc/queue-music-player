@@ -1,5 +1,6 @@
 import { reduce } from './reduce.js';
-import { loadRoom, savePosition, saveRoom, type RoomStore } from '../persistence/room-store.js';
+import { deferWrites, type DeferOptions } from '../persistence/deferred-writes.js';
+import type { RoomStore } from '../persistence/room-store.js';
 import type { Command, Effect, RoomState, Song } from './types.js';
 
 export type RoomRuntime = {
@@ -8,6 +9,8 @@ export type RoomRuntime = {
   /** A Song the Room knows about, wherever the Track holding it happens to sit. */
   findSong: (songId: string) => Song | undefined;
   dispatch: (command: Command) => Effect[];
+  /** Finishes writing the Room down and lets the store go. */
+  close: () => Promise<void>;
 };
 
 export type Clock = {
@@ -19,12 +22,22 @@ export type Clock = {
  * Owns the Room: restores it from the store on creation, and keeps the store in
  * step as Commands arrive. Effects are handed back to the caller rather than
  * performed here, so the transport stays the only thing that knows about sockets.
+ *
+ * Creating a Runtime waits for the store; `dispatch` never does. The Room is
+ * read once, and from then on the reducer in memory is what the Room is — the
+ * store is told afterwards. See ADR-0004.
  */
-export function createRoomRuntime(store: RoomStore, clock: Clock): RoomRuntime {
-  const restored = loadRoom(store);
-  // Where the audio had reached is not written down, so a restored Track starts
-  // from the top — but it starts *now*, not at the epoch, or everything that
-  // measures elapsed playback reads the Room as having just begun in 1970.
+export async function createRoomRuntime(
+  store: RoomStore,
+  clock: Clock,
+  options: DeferOptions = {}
+): Promise<RoomRuntime> {
+  const restored = await store.load();
+  const writes = deferWrites(store, options);
+
+  // A restored Track picks up where it left off, but it starts *now*, not at the
+  // epoch, or everything that measures elapsed playback reads the Room as having
+  // just begun in 1970.
   let room: RoomState = restored.nowPlaying
     ? {
         ...restored,
@@ -44,7 +57,7 @@ export function createRoomRuntime(store: RoomStore, clock: Clock): RoomRuntime {
       room = state;
 
       // Controllers coming and going are not written down, so most Commands
-      // touch no disk at all. Everything that is written down is checked, not
+      // touch no store at all. Everything that is written down is checked, not
       // just the Queue: gating on the Queue alone quietly lost every Playlist,
       // because saving one never changes the Queue.
       if (
@@ -53,17 +66,22 @@ export function createRoomRuntime(store: RoomStore, clock: Clock): RoomRuntime {
         state.history !== before.history ||
         state.playlists !== before.playlists
       ) {
-        saveRoom(store, state);
+        writes.room(state);
       } else if (
         state.nowPlaying &&
         state.transport.positionSeconds !== before.transport.positionSeconds
       ) {
         // Once a second while a Track plays. Far too often for a whole-Room
         // rewrite, and the only reason a restart can pick a Track up mid-way.
-        savePosition(store, state.nowPlaying.id, state.transport.positionSeconds);
+        writes.position(state.nowPlaying.id, state.transport.positionSeconds);
       }
 
       return effects;
+    },
+
+    async close() {
+      await writes.drain();
+      await store.close();
     }
   };
 }

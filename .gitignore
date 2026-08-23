@@ -12,10 +12,8 @@ dist/
 .env.*
 !.env.example
 
-# local player state
-*.sqlite
-*.sqlite-journal
-data/
+# firebase service account key, if it is downloaded rather than pasted into .env
+*-firebase-adminsdk-*.json
 
 # os / editor
 .DS_Store
