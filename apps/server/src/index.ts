@@ -1,14 +1,13 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { Readable } from 'node:stream';
-import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Fastify from 'fastify';
 import fastifyStatic from '@fastify/static';
 import { Server as SocketServer } from 'socket.io';
 import { createRoomRuntime } from './room/room.js';
 import { addTrackByUrl } from './room/add-track.js';
-import { openRoomStore } from './persistence/room-store.js';
+import { openRoomStore, readFirebaseConfig } from './persistence/firestore-room-store.js';
 import { createYouTubeProvider } from './sources/youtube.js';
 import {
   createInnertube,
@@ -35,10 +34,23 @@ const access = readAccess(process.env);
 
 const PORT = Number(process.env['PORT'] ?? 5858);
 const HOST = process.env['HOST'] ?? '0.0.0.0';
-const DB_FILE = resolve(process.env['DB_FILE'] ?? join(process.cwd(), 'data', 'room.sqlite'));
 
-mkdirSync(dirname(DB_FILE), { recursive: true });
-const room = createRoomRuntime(openRoomStore(DB_FILE), { now: Date.now, newId: randomUUID });
+const store = openRoomStore(readFirebaseConfig(process.env));
+
+/**
+ * The Room is read before anything is served. If Firestore cannot be reached
+ * the server stops here on purpose: coming up with an empty Room would show
+ * everyone an empty Queue and then write that emptiness over the real one.
+ *
+ * Nothing after this point waits for Firestore. A connection that goes away
+ * mid-night costs the record of the night, not the night — see ADR-0004.
+ */
+const room = await createRoomRuntime(store, { now: Date.now, newId: randomUUID }, {
+  onError: (error) => console.error('Could not write the Room down; will try again.', error)
+}).catch((error: unknown) => {
+  console.error('Could not read the Room from Firestore, so the Room is not opening.', error);
+  process.exit(1);
+});
 
 /**
  * The Source is reached for on first use, not at startup: a Room whose Queue is
@@ -360,4 +372,18 @@ io.on('connection', (socket) => {
   });
 });
 
-console.log(`server ready on http://${HOST}:${PORT}  (db: ${DB_FILE})`);
+/**
+ * Writes are buffered, so the last one may still be in the air when somebody
+ * presses Ctrl-C. Waiting briefly for it costs a moment at the end of the night
+ * and saves whatever was added in the last second of it.
+ */
+for (const signal of ['SIGINT', 'SIGTERM'] as const) {
+  process.once(signal, () => {
+    void Promise.race([
+      room.close(),
+      new Promise((done) => setTimeout(done, 2_000).unref())
+    ]).then(() => process.exit(0));
+  });
+}
+
+console.log(`server ready on http://${HOST}:${PORT}`);

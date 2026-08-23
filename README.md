@@ -25,7 +25,37 @@ cp apps/server/.env.example apps/server/.env
 machine types to take the speaker. Keep them different: holding one must not
 grant the other.
 
-**2. Build and start.**
+**2. Point it at somewhere to remember the Room.** The Queue, History and
+Playlists live in Firestore, so they survive a restart and can be looked at — and
+corrected — from a console rather than from a file on this machine. See
+[ADR-0004](./docs/adr/0004-the-room-is-remembered-in-firestore.md) for why, and
+for what that costs.
+
+Once, ever:
+
+1. Make a project at <https://console.firebase.google.com>.
+2. In it, **Build → Firestore Database → Create database**. Production mode is
+   right: nothing but this server ever talks to it, so no client rule needs to
+   allow anything.
+3. **Project settings → Service accounts → Generate new private key.** That
+   downloads a JSON file. It is a credential — keep it out of the repository.
+
+Copy three values out of that file into `apps/server/.env`:
+
+```
+FIREBASE_PROJECT_ID=your-project-id
+FIREBASE_CLIENT_EMAIL=firebase-adminsdk-…@your-project-id.iam.gserviceaccount.com
+FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nMIIE…\n-----END PRIVATE KEY-----\n"
+```
+
+The private key is many lines in the JSON file and one line here, with the
+newlines written as `\n`. Keep the quotes.
+
+A night at one Room's scale sits well inside the free tier: the whole Room is one
+document, and it is written when the Queue changes and at most once every five
+seconds while a Track plays.
+
+**3. Build and start.**
 
 ```bash
 pnpm install
@@ -33,13 +63,15 @@ pnpm build
 pnpm --filter @qmp/server start
 ```
 
-The Room is now at `http://localhost:5858`.
+The Room is now at `http://localhost:5858`. If Firestore cannot be reached, it
+says so and stops instead of starting: an empty Room would look like a real one,
+and then get written over the real one.
 
-**3. Open the speaker** at <http://localhost:5858/player>, enter the Player
+**4. Open the speaker** at <http://localhost:5858/player>, enter the Player
 password, and press *Start the speaker* once. Browsers will not make sound until
 somebody asks, so this is the one unavoidable click of the evening.
 
-**4. Let friends in.** On the same wifi, your machine's address on port 5858 is
+**5. Let friends in.** On the same wifi, your machine's address on port 5858 is
 enough. For phones on mobile data — or for the screen wake lock and media keys,
 which browsers only allow on a secure origin — put it through a tunnel. Once:
 
@@ -65,6 +97,22 @@ the audio itself. A device elsewhere cannot claim the speaker even holding the
 password, and the audio endpoint answers nothing that arrived through the tunnel.
 Otherwise a Player somewhere else would drag every byte back out through this
 machine's connection to reach a speaker nobody here can hear.
+
+### If the connection drops mid-night
+
+The Room is read from Firestore once, at startup, and never waited for again.
+Everything after that runs from memory: the reducer on this machine is what the
+Room *is*, and Firestore is told afterwards.
+
+So a connection that goes away in the middle of the evening costs the record of
+the night, not the night. The music keeps playing, the Queue keeps being shaped
+from phones on the wifi, and the write that could not go out is kept and retried
+until the line comes back — carrying whatever the Room looks like *then*, not
+what it looked like when the connection went. Nobody in the room sees anything.
+
+Two things do not survive it. If the server itself dies while the connection is
+away, whatever had not been written is gone; and a server started while
+Firestore is unreachable will not start at all.
 
 ## Using it
 
@@ -124,6 +172,23 @@ Then open `apps/server/.env` and fill in `JOIN_CODE` and `PLAYER_PASSWORD`. The
 server will not start without both, and it says so rather than coming up
 unguarded.
 
+It also needs somewhere to remember the Room. Either fill in the Firebase values
+as above — a second project keeps a night's Queue away from what you are
+breaking — or run the Firestore emulator and point at that instead:
+
+```bash
+npm install -g firebase-tools
+firebase emulators:start --only firestore --project qmp-dev
+```
+
+```
+FIREBASE_PROJECT_ID=qmp-dev
+FIRESTORE_EMULATOR_HOST=127.0.0.1:8080
+```
+
+The emulator wants no credentials and no Google account, and forgets everything
+when it stops. It does want a JVM.
+
 Then, every time:
 
 ```bash
@@ -134,7 +199,7 @@ That starts two things at once and prefixes their output `[server]` and `[web]`:
 
 | | |
 |---|---|
-| `:5858` | the server — the socket, the audio, the database |
+| `:5858` | the server — the socket, the audio, the Room |
 | `:5173` | Vite serving the site, with hot reload |
 
 Open the Queue at <http://localhost:5173> and the speaker at
@@ -179,7 +244,7 @@ be a Controller, never the speaker.
 ### Checks
 
 ```bash
-pnpm test         # the reducer and the store, no network
+pnpm test         # the reducer and the store, no network and no Firebase
 pnpm typecheck
 pnpm --filter @qmp/server test:contract   # talks to the real YouTube
 ```
