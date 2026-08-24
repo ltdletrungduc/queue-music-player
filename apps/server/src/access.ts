@@ -31,8 +31,8 @@ const UNGUARDED =
 
 export function readAccess(env: Record<string, string | undefined>): Access {
   return {
-    joinCode: required(env, 'JOIN_CODE', UNGUARDED),
-    playerPassword: required(env, 'PLAYER_PASSWORD', UNGUARDED)
+    joinCode: required(env, 'APP_JOIN_CODE', UNGUARDED),
+    playerPassword: required(env, 'APP_PLAYER_PASSWORD', UNGUARDED)
   };
 }
 
@@ -52,7 +52,7 @@ export type FirebaseConfig = {
 export function readFirebaseConfig(env: Record<string, string | undefined>): FirebaseConfig {
   const projectId = required(
     env,
-    'FIREBASE_PROJECT_ID',
+    'APP_FIREBASE_PROJECT_ID',
     'The Room is remembered in Firestore, and that names which project holds it.'
   );
 
@@ -66,14 +66,14 @@ export function readFirebaseConfig(env: Record<string, string | undefined>): Fir
     credentials: {
       clientEmail: required(
         env,
-        'FIREBASE_CLIENT_EMAIL',
+        'APP_FIREBASE_CLIENT_EMAIL',
         'A service account is how this machine proves it may read the Room.'
       ),
       // Multi-line in the file it came from, one line with \n in it by the time
       // it reaches an environment variable.
       privateKey: required(
         env,
-        'FIREBASE_PRIVATE_KEY',
+        'APP_FIREBASE_PRIVATE_KEY',
         'A service account is how this machine proves it may read the Room.'
       ).replace(/\\n/g, '\n')
     }
