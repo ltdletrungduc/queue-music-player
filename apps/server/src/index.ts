@@ -7,7 +7,7 @@ import fastifyStatic from '@fastify/static';
 import { Server as SocketServer } from 'socket.io';
 import { createRoomRuntime } from './room/room.js';
 import { addTrackByUrl } from './room/add-track.js';
-import { openRoomStore, readFirebaseConfig } from './persistence/firestore-room-store.js';
+import { openRoomStore } from './persistence/firestore-room-store.js';
 import { createYouTubeProvider } from './sources/youtube.js';
 import {
   createInnertube,
@@ -18,7 +18,7 @@ import {
 import type { Effect } from './room/types.js';
 import type { SourceProvider } from './sources/types.js';
 import { randomBytes } from 'node:crypto';
-import { admits, readAccess, type Role } from './access.js';
+import { admits, readAccess, readFirebaseConfig, type Role } from './access.js';
 import { isFromThisMachine } from './local-only.js';
 import type { AddResult, Song } from '@qmp/shared';
 

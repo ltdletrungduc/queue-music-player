@@ -12,6 +12,11 @@ dist/
 .env.*
 !.env.example
 
+# local player state, from before the Room was remembered in Firestore
+*.sqlite
+*.sqlite-journal
+data/
+
 # firebase service account key, if it is downloaded rather than pasted into .env
 *-firebase-adminsdk-*.json
 

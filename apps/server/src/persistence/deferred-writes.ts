@@ -1,5 +1,5 @@
 import type { RoomState } from '@qmp/shared';
-import type { RoomStore } from './room-store.js';
+import { UnwritableRoom, type RoomStore } from './room-store.js';
 
 /**
  * The Room reduces a Command and writes the result in the same breath, and the
@@ -73,6 +73,11 @@ export function deferWrites(store: RoomStore, options: DeferOptions = {}): Defer
     void written
       .catch((error: unknown) => {
         onError(error);
+        // A Room the store refuses is refused again by the next attempt, which
+        // would leave nothing written for the rest of the night and a `drain`
+        // that never settles. It is dropped instead: the next Room that can be
+        // written is written, and only the connection is worth retrying.
+        if (error instanceof UnwritableRoom) return;
         // Put it back, unless something newer has arrived in the meantime — the
         // night carries on while the connection is away, and catches up when it
         // returns.
