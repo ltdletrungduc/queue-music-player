@@ -1,6 +1,14 @@
 import type { RoomState } from '@qmp/shared';
 
 /**
+ * A write refused because of the Room rather than the connection. Sending it
+ * again sends the same Room, so it fails the same way: this is the failure that
+ * retrying cannot fix. See `toDocument` in room-document.ts for the one Room
+ * that cannot be written down.
+ */
+export class UnwritableRoom extends Error {}
+
+/**
  * What the Room asks of whatever remembers it. Nothing here names a database:
  * the Room keeps Songs, Tracks and Playlists, and asks only that they still be
  * there after a restart. See ADR-0004.

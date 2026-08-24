@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { RoomState, Song, Track } from '@qmp/shared';
 import { deferWrites } from './deferred-writes.js';
 import { createMemoryRoomStore } from './memory-room-store.js';
-import type { RoomStore } from './room-store.js';
+import { UnwritableRoom, type RoomStore } from './room-store.js';
 import { emptyRoom } from '../room/reduce.js';
 
 const song = (id: string): Song => ({
@@ -26,6 +26,20 @@ const track = (id: string, orderKey: string): Track => ({
 const withQueue = (...ids: string[]): RoomState => ({
   ...emptyRoom(),
   queue: ids.map((id, i) => track(id, `a${i}`))
+});
+
+/** A Playlist holding the same Song twice, as a hand-edited Room might. */
+const roomThatCannotBeWritten = (): RoomState => ({
+  ...emptyRoom(),
+  playlists: [
+    {
+      id: 'p1',
+      name: 'Edited by hand, badly',
+      createdByNickname: 'Duc',
+      createdAt: 1_700_000_000_000,
+      tracks: [track('t1', 'a0'), { ...track('t2', 'a1'), song: song('t1') }]
+    }
+  ]
 });
 
 /** A store that answers only when told to, so a write can be caught in the air. */
@@ -158,5 +172,41 @@ describe('when the store cannot be reached', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('when the Room cannot be written down', () => {
+  it('drops it rather than retrying a write that cannot succeed', async () => {
+    vi.useFakeTimers();
+    try {
+      const store = createMemoryRoomStore();
+      const failures: unknown[] = [];
+      const writes = deferWrites(store, { retryMs: 1_000, onError: (e) => failures.push(e) });
+
+      writes.room(roomThatCannotBeWritten());
+      await vi.advanceTimersByTimeAsync(0);
+      expect(failures).toHaveLength(1);
+      expect(failures[0]).toBeInstanceOf(UnwritableRoom);
+
+      // Nothing is waiting to be tried again: a second attempt sends the same
+      // Room, so it would fail the same way for the rest of the night.
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(failures).toHaveLength(1);
+
+      // And the night carries on — the next Room that can be written is.
+      writes.room(withQueue('t1'));
+      await writes.drain();
+      expect(store.document()?.queue.map((t) => t.id)).toEqual(['t1']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('settles a drain instead of waiting on a write that never lands', async () => {
+    const writes = deferWrites(createMemoryRoomStore(), { onError: () => {} });
+
+    writes.room(roomThatCannotBeWritten());
+
+    await expect(writes.drain()).resolves.toBeUndefined();
   });
 });

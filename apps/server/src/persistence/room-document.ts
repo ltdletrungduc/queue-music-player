@@ -1,5 +1,6 @@
 import type { Playlist, RoomState, Song, SourceName, Track } from '@qmp/shared';
 import { emptyRoom } from '../room/reduce.js';
+import { UnwritableRoom } from './room-store.js';
 
 /**
  * The Room as one plain document, which is what Firestore stores and what
@@ -60,7 +61,7 @@ const toPlaylistDocument = (playlist: Playlist): PlaylistDocument => {
     // and a document cannot, so the promise is kept here instead — refusing the
     // write rather than quietly storing the same Song twice.
     if (songIds.has(track.song.id)) {
-      throw new Error(
+      throw new UnwritableRoom(
         `Playlist ${playlist.id} holds ${track.song.id} twice. A Song appears in a Playlist once.`
       );
     }

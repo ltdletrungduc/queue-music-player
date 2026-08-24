@@ -1,5 +1,6 @@
 import type { RoomState } from '@qmp/shared';
 import { fromDocument, toDocument, type RoomDocument } from './room-document.js';
+import { emptyRoom } from '../room/reduce.js';
 import type { RoomStore } from './room-store.js';
 
 /**
@@ -34,7 +35,11 @@ export function createMemoryRoomStore(initial?: RoomState): MemoryRoomStore {
 
     async savePosition(trackId, positionSeconds) {
       await refuseIfBroken();
-      if (document) document.position = { trackId, seconds: positionSeconds };
+      // Merged onto whatever is there, and creating a document if nothing is, as
+      // Firestore's `set(…, { merge: true })` does — so a Room whose first write
+      // is a position is remembered here too rather than silently dropped.
+      document ??= toDocument(emptyRoom());
+      document.position = { trackId, seconds: positionSeconds };
     },
 
     async close() {},
