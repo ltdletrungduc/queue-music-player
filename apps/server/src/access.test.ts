@@ -5,18 +5,18 @@ const access = { joinCode: 'letmein', playerPassword: 'speaker' };
 
 describe('reading the Room\'s secrets from configuration', () => {
   it('reads them when they are set', () => {
-    expect(readAccess({ JOIN_CODE: 'letmein', PLAYER_PASSWORD: 'speaker' })).toEqual(access);
+    expect(readAccess({ APP_JOIN_CODE: 'letmein', APP_PLAYER_PASSWORD: 'speaker' })).toEqual(access);
   });
 
   it.each([
-    ['no Join Code', { PLAYER_PASSWORD: 'speaker' }],
-    ['no Player password', { JOIN_CODE: 'letmein' }],
-    ['an empty Join Code', { JOIN_CODE: '', PLAYER_PASSWORD: 'speaker' }],
-    ['a blank Player password', { JOIN_CODE: 'letmein', PLAYER_PASSWORD: '   ' }]
+    ['no Join Code', { APP_PLAYER_PASSWORD: 'speaker' }],
+    ['no Player password', { APP_JOIN_CODE: 'letmein' }],
+    ['an empty Join Code', { APP_JOIN_CODE: '', APP_PLAYER_PASSWORD: 'speaker' }],
+    ['a blank Player password', { APP_JOIN_CODE: 'letmein', APP_PLAYER_PASSWORD: '   ' }]
   ])('refuses to start with %s', (_, env) => {
     // Starting without them would open the Room to anyone who finds the address,
     // silently. Better to refuse to start at all than to look like it worked.
-    expect(() => readAccess(env)).toThrow(/JOIN_CODE|PLAYER_PASSWORD/);
+    expect(() => readAccess(env)).toThrow(/APP_JOIN_CODE|APP_PLAYER_PASSWORD/);
   });
 });
 

@@ -21,9 +21,9 @@ fine is worse than not starting.
 cp apps/server/.env.example apps/server/.env
 ```
 
-`JOIN_CODE` is what friends type to get in. `PLAYER_PASSWORD` is what this
-machine types to take the speaker. Keep them different: holding one must not
-grant the other.
+`APP_JOIN_CODE` is what friends type to get in. `APP_PLAYER_PASSWORD` is what
+this machine types to take the speaker. Keep them different: holding one must
+not grant the other.
 
 **2. Point it at somewhere to remember the Room.** The Queue, History and
 Playlists live in Firestore, so they survive a restart and can be looked at — and
@@ -43,9 +43,9 @@ Once, ever:
 Copy three values out of that file into `apps/server/.env`:
 
 ```
-FIREBASE_PROJECT_ID=your-project-id
-FIREBASE_CLIENT_EMAIL=firebase-adminsdk-…@your-project-id.iam.gserviceaccount.com
-FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nMIIE…\n-----END PRIVATE KEY-----\n"
+APP_FIREBASE_PROJECT_ID=your-project-id
+APP_FIREBASE_CLIENT_EMAIL=firebase-adminsdk-…@your-project-id.iam.gserviceaccount.com
+APP_FIREBASE_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\nMIIE…\n-----END PRIVATE KEY-----\n"
 ```
 
 The private key is many lines in the JSON file and one line here, with the
@@ -168,7 +168,7 @@ pnpm install
 cp apps/server/.env.example apps/server/.env
 ```
 
-Then open `apps/server/.env` and fill in `JOIN_CODE` and `PLAYER_PASSWORD`. The
+Then open `apps/server/.env` and fill in `APP_JOIN_CODE` and `APP_PLAYER_PASSWORD`. The
 server will not start without both, and it says so rather than coming up
 unguarded.
 
@@ -182,7 +182,7 @@ firebase emulators:start --only firestore --project qmp-dev
 ```
 
 ```
-FIREBASE_PROJECT_ID=qmp-dev
+APP_FIREBASE_PROJECT_ID=qmp-dev
 FIRESTORE_EMULATOR_HOST=127.0.0.1:8080
 ```
 
