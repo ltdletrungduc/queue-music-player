@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
-  import { dndzone, type DndEvent } from 'svelte-dnd-action';
+  import { dndzone, SHADOW_ITEM_MARKER_PROPERTY_NAME, type DndEvent } from 'svelte-dnd-action';
   import { flip } from 'svelte/animate';
   import * as Alert from '$lib/components/ui/alert';
   import { Badge } from '$lib/components/ui/badge';
@@ -91,6 +91,15 @@
    * first swipe that touched it. A mouse is unaffected.
    */
   const HOLD_TO_DRAG_MS = 200;
+
+  /**
+   * While a drag is live the library slips a marked placeholder into the list
+   * where the held Track would land. Drawing that one row as a dashed slot is
+   * what makes the drop target visible — top of the list means first, bottom
+   * means last, and now you can see which before letting go.
+   */
+  const isDropSlot = (track: Track) =>
+    (track as Record<string, unknown>)[SHADOW_ITEM_MARKER_PROPERTY_NAME] === true;
 
   function considering(event: CustomEvent<DndEvent<Track>>) {
     ownOrder = onlyOnce(event.detail.items);
@@ -276,14 +285,25 @@
           items: upNext,
           flipDurationMs: 150,
           delayTouchStart: HOLD_TO_DRAG_MS,
-          dropTargetStyle: {}
+          dropTargetStyle: {},
+          dropTargetClasses: [
+            'outline',
+            'outline-2',
+            'outline-dashed',
+            'outline-primary/40',
+            'outline-offset-4',
+            'rounded-lg'
+          ]
         }}
         onconsider={considering}
         onfinalize={dropped}
       >
         {#each upNext as track, index (track.id)}
           <li
-            class="flex items-center gap-2 rounded-lg border bg-card p-2 text-card-foreground"
+            class={[
+              'flex items-center gap-2 rounded-lg border bg-card p-2 text-card-foreground',
+              isDropSlot(track) && 'border-dashed border-primary bg-primary/5 opacity-60'
+            ]}
             animate:flip={{ duration: 150 }}
           >
             <span
