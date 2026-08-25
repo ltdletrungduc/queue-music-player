@@ -3,15 +3,14 @@
   import JoinForm from '$lib/components/join-form.svelte';
   import * as Alert from '$lib/components/ui/alert';
   import { Button } from '$lib/components/ui/button';
-  import * as Card from '$lib/components/ui/card';
   import * as Empty from '$lib/components/ui/empty';
-  import { Progress } from '$lib/components/ui/progress';
   import { Slider } from '$lib/components/ui/slider';
   import { createRoom } from '$lib/room.svelte';
   import { createProgress } from '$lib/progress.svelte';
   import { keepAwakeWhile } from '$lib/keep-awake.svelte';
   import { publishToMediaSession } from '$lib/media-session.svelte';
   import { asMinutesAndSeconds } from '$lib/format';
+  import type { Song } from '@qmp/shared';
 
   const room = createRoom();
 
@@ -32,8 +31,22 @@
     volumeDraft = next;
     room.setVolume(next);
   }
+
+  const volumeIcon = $derived(
+    volume === 0
+      ? 'icon-[ic--round-volume-off]'
+      : volume < 0.5
+        ? 'icon-[ic--round-volume-down]'
+        : 'icon-[ic--round-volume-up]'
+  );
+
   let started = $state(false);
   let problem = $state('');
+
+  // Desktop shows the track and the list side by side; a narrow screen has room
+  // for one at a time and switches between them.
+  let tab = $state<'now' | 'list'>('now');
+  let volumeOpen = $state(false);
 
   const nowPlaying = $derived(room.nowPlaying);
 
@@ -161,177 +174,235 @@
     <p class="text-sm text-muted-foreground">Sound comes out of this device only.</p>
   </main>
 {:else}
-  <main class="grid min-h-dvh grid-cols-1 gap-8 p-8 lg:grid-cols-[3fr_2fr] lg:gap-12 lg:p-12">
-    <!-- Read from across a room: artwork first, then the title, then everything else. -->
-    <section class="flex min-w-0 flex-col justify-center gap-6">
-      {#if nowPlaying}
-        <img
-          src={nowPlaying.song.artworkUrl}
-          alt=""
-          class="aspect-video w-full rounded-2xl object-cover shadow-2xl"
-          class:opacity-40={!room.transport.isPlaying}
-        />
+  {#snippet trackRow(song: Song, opts: { active?: boolean; dim?: boolean; struck?: boolean })}
+    <li
+      class={[
+        'flex items-center gap-3 rounded-xl p-2 transition-colors',
+        opts.active ? 'bg-accent' : 'hover:bg-muted',
+        opts.dim && 'opacity-50'
+      ]}
+    >
+      <img src={song.artworkUrl} alt="" class="size-12 shrink-0 rounded-lg object-cover" />
+      <div class="min-w-0 flex-1">
+        <p class={['truncate font-medium', opts.struck && 'line-through']}>
+          {song.title}
+        </p>
+        <p class="truncate text-sm text-muted-foreground">{song.author}</p>
+      </div>
+      {#if opts.active}
+        <span
+          class="icon-[ic--round-graphic-eq] size-5 shrink-0 text-muted-foreground"
+          aria-hidden="true"
+        ></span>
+      {/if}
+    </li>
+  {/snippet}
 
-        <div class="flex min-w-0 flex-col gap-2">
-          <h1 class="truncate text-4xl font-semibold tracking-tight lg:text-5xl">
-            {nowPlaying.song.title}
-          </h1>
-          <p class="truncate text-xl text-muted-foreground lg:text-2xl">{nowPlaying.song.author}</p>
-          <p class="truncate text-base text-muted-foreground">
-            {#if room.transport.isPlaying}
-              added by {nowPlaying.addedByNickname}
-            {:else}
-              Paused · added by {nowPlaying.addedByNickname}
-            {/if}
-          </p>
-        </div>
+  <main class="relative min-h-dvh">
+    <!-- One screen at a time on a phone; the segmented control switches between them. -->
+    <div class="flex justify-center p-4 lg:hidden">
+      <div class="inline-flex rounded-full bg-muted p-1">
+        <button
+          type="button"
+          class={[
+            'rounded-full px-5 py-1.5 text-sm font-medium transition-colors',
+            tab === 'now' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground'
+          ]}
+          onclick={() => (tab = 'now')}
+        >
+          Now playing
+        </button>
+        <button
+          type="button"
+          class={[
+            'rounded-full px-5 py-1.5 text-sm font-medium transition-colors',
+            tab === 'list' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground'
+          ]}
+          onclick={() => (tab = 'list')}
+        >
+          Playlist
+        </button>
+      </div>
+    </div>
 
-        <div class="flex flex-col gap-2">
-          <Progress value={progress.fraction * 100} max={100} />
-          <div class="flex justify-between text-base tabular-nums text-muted-foreground">
-            <span>{asMinutesAndSeconds(progress.seconds)}</span>
-            <span>{asMinutesAndSeconds(nowPlaying.song.durationSeconds)}</span>
+    <div
+      class="mx-auto grid max-w-6xl grid-cols-1 gap-10 px-6 pb-10 lg:grid-cols-[3fr_2fr] lg:gap-12 lg:px-12 lg:py-12"
+    >
+      <!-- Now playing: artwork first, read from across a room, then the controls. -->
+      <section
+        class={[
+          'min-w-0 flex-col items-center justify-center gap-8',
+          tab === 'now' ? 'flex' : 'hidden',
+          'lg:flex'
+        ]}
+      >
+        {#if nowPlaying}
+          <div class="w-full max-w-[18rem] lg:max-w-sm">
+            <img
+              src={nowPlaying.song.artworkUrl}
+              alt=""
+              class="aspect-square w-full rounded-full object-cover shadow-xl ring-1 ring-border transition-opacity"
+              class:opacity-40={!room.transport.isPlaying}
+            />
           </div>
-        </div>
 
-        <!-- Whoever's laptop this is, is standing next to it. The icons are sized
-             past what the Button would choose, because this screen is meant to be
-             read, and used, from the other side of a room. -->
-        <div class="flex items-center gap-4">
-          <Button
-            variant="secondary"
-            size="icon-lg"
-            class="size-16 rounded-full"
-            onclick={() => room.previous(nowPlaying.id)}
-            aria-label="Previous"
-          >
-            <span class="icon-[ic--round-skip-previous] size-8"></span>
-          </Button>
-          <Button
-            size="icon-lg"
-            class="size-20 rounded-full"
-            onclick={() => (room.transport.isPlaying ? room.pause() : room.resume())}
-            aria-label={room.transport.isPlaying ? 'Pause' : 'Play'}
-          >
-            <span
-              class="size-10 {room.transport.isPlaying
-                ? 'icon-[ic--round-pause]'
-                : 'icon-[ic--round-play-arrow]'}"
-            ></span>
-          </Button>
-          <Button
-            variant="secondary"
-            size="icon-lg"
-            class="size-16 rounded-full"
-            onclick={() => room.skip(nowPlaying.id)}
-            aria-label="Next"
-          >
-            <span class="icon-[ic--round-skip-next] size-8"></span>
-          </Button>
-        </div>
-
-        <!-- The speaker's own dial is across the room from whoever is holding a
-             phone, so the volume lives here, on the machine making the sound. -->
-        <div class="flex items-center gap-4">
-          <span class="icon-[ic--round-volume-down] size-6 shrink-0 text-muted-foreground"></span>
-          <Slider
-            type="single"
-            value={volume}
-            min={0}
-            max={1}
-            step={0.05}
-            onValueChange={setVolume}
-            onValueCommit={() => (volumeDraft = null)}
-            aria-label="Volume"
-            class="flex-1"
-          />
-          <span class="icon-[ic--round-volume-up] size-6 shrink-0 text-muted-foreground"></span>
-        </div>
-      {:else}
-        <Empty.Root>
-          <Empty.Header>
-            <Empty.Media variant="icon">
-              <span class="icon-[ic--round-queue-music]"></span>
-            </Empty.Media>
-            <Empty.Title>Queue's empty</Empty.Title>
-            <Empty.Description>Add something from your phone.</Empty.Description>
-          </Empty.Header>
-        </Empty.Root>
-      {/if}
-
-      {#if problem}
-        <Alert.Root variant="destructive">
-          <span class="icon-[ic--round-error-outline]"></span>
-          <Alert.Description>{problem}</Alert.Description>
-        </Alert.Root>
-      {/if}
-    </section>
-
-    <aside class="flex min-w-0 flex-col gap-8 overflow-hidden">
-      <section class="flex min-w-0 flex-col gap-3">
-        <h2 class="text-base uppercase tracking-widest text-muted-foreground">Up next</h2>
-        {#if room.queue.length === 0}
-          <p class="text-lg text-muted-foreground">Nothing waiting.</p>
-        {:else}
-          <ul class="flex flex-col gap-3">
-            {#each room.queue.slice(0, 5) as track (track.id)}
-              <li>
-                <Card.Root
-                  data-size="sm"
-                  class="flex min-w-0 flex-row items-center gap-4 p-3"
-                >
-                  <img
-                    src={track.song.artworkUrl}
-                    alt=""
-                    class="h-14 w-[4.5rem] shrink-0 rounded-lg object-cover"
-                  />
-                  <div class="min-w-0 flex-1">
-                    <p class="truncate text-lg font-medium">{track.song.title}</p>
-                    <p class="truncate text-base text-muted-foreground">{track.song.author}</p>
-                  </div>
-                </Card.Root>
-              </li>
-            {/each}
-          </ul>
-          {#if room.queue.length > 5}
-            <p class="text-base text-muted-foreground">
-              and {room.queue.length - 5} more
+          <div class="flex min-w-0 max-w-md flex-col items-center gap-1 text-center">
+            <h1 class="max-w-full truncate text-3xl font-semibold tracking-tight lg:text-4xl">
+              {nowPlaying.song.title}
+            </h1>
+            <p class="max-w-full truncate text-lg text-muted-foreground">{nowPlaying.song.author}</p>
+            <p class="max-w-full truncate text-sm text-muted-foreground">
+              {#if room.transport.isPlaying}
+                added by {nowPlaying.addedByNickname}
+              {:else}
+                Paused · added by {nowPlaying.addedByNickname}
+              {/if}
             </p>
-          {/if}
+          </div>
+
+          <div class="flex w-full max-w-md flex-col gap-2">
+            <div class="relative h-1.5 w-full rounded-full bg-muted">
+              <div
+                class="absolute inset-y-0 left-0 rounded-full bg-primary"
+                style="width: {Math.min(100, progress.fraction * 100)}%"
+              ></div>
+            </div>
+            <div class="flex justify-between text-xs tabular-nums text-muted-foreground">
+              <span>{asMinutesAndSeconds(progress.seconds)}</span>
+              <span>{asMinutesAndSeconds(nowPlaying.song.durationSeconds)}</span>
+            </div>
+          </div>
+
+          <div class="relative flex w-full max-w-md items-center justify-center gap-8">
+            <button
+              type="button"
+              class="grid size-12 place-items-center rounded-full text-muted-foreground transition-colors hover:text-foreground"
+              onclick={() => room.previous(nowPlaying.id)}
+              aria-label="Previous"
+            >
+              <span class="icon-[ic--round-skip-previous] size-9"></span>
+            </button>
+            <button
+              type="button"
+              class="grid size-16 place-items-center rounded-full bg-primary text-primary-foreground transition-colors hover:bg-primary/90"
+              onclick={() => (room.transport.isPlaying ? room.pause() : room.resume())}
+              aria-label={room.transport.isPlaying ? 'Pause' : 'Play'}
+            >
+              <span
+                class="size-9 {room.transport.isPlaying
+                  ? 'icon-[ic--round-pause]'
+                  : 'icon-[ic--round-play-arrow]'}"
+              ></span>
+            </button>
+            <button
+              type="button"
+              class="grid size-12 place-items-center rounded-full text-muted-foreground transition-colors hover:text-foreground"
+              onclick={() => room.skip(nowPlaying.id)}
+              aria-label="Next"
+            >
+              <span class="icon-[ic--round-skip-next] size-9"></span>
+            </button>
+
+            <!-- Volume opens a vertical dial, off to the side of the transport. -->
+            <div class="absolute right-0">
+              <button
+                type="button"
+                class="grid size-12 place-items-center rounded-full text-muted-foreground transition-colors hover:text-foreground"
+                onclick={() => (volumeOpen = !volumeOpen)}
+                aria-label="Volume"
+                aria-expanded={volumeOpen}
+              >
+                <span class="{volumeIcon} size-7"></span>
+              </button>
+              {#if volumeOpen}
+                <!-- A tap anywhere else puts the dial away. -->
+                <button
+                  type="button"
+                  class="fixed inset-0 z-20 cursor-default"
+                  tabindex="-1"
+                  aria-hidden="true"
+                  onclick={() => (volumeOpen = false)}
+                ></button>
+                <div
+                  class="absolute bottom-full left-1/2 z-30 mb-3 flex -translate-x-1/2 flex-col items-center gap-3 rounded-2xl border bg-popover p-4 shadow-xl"
+                >
+                  <span class="w-12 text-center text-sm tabular-nums text-muted-foreground"
+                    >{Math.round(volume * 100)}%</span
+                  >
+                  <Slider
+                    type="single"
+                    orientation="vertical"
+                    value={volume}
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    onValueChange={setVolume}
+                    onValueCommit={() => (volumeDraft = null)}
+                    aria-label="Volume"
+                    class="h-40"
+                  />
+                  <span class="icon-[ic--round-volume-mute] size-5 text-muted-foreground"></span>
+                </div>
+              {/if}
+            </div>
+          </div>
+        {:else}
+          <Empty.Root>
+            <Empty.Header>
+              <Empty.Media variant="icon">
+                <span class="icon-[ic--round-queue-music]"></span>
+              </Empty.Media>
+              <Empty.Title>Queue's empty</Empty.Title>
+              <Empty.Description>Add something from your phone.</Empty.Description>
+            </Empty.Header>
+          </Empty.Root>
+        {/if}
+
+        {#if problem}
+          <Alert.Root variant="destructive" class="w-full max-w-md">
+            <span class="icon-[ic--round-error-outline]"></span>
+            <Alert.Description>{problem}</Alert.Description>
+          </Alert.Root>
         {/if}
       </section>
 
-      {#if room.history.length > 0}
-        <section class="flex min-w-0 flex-col gap-2">
-          <h2 class="text-base uppercase tracking-widest text-muted-foreground">Just played</h2>
-          <ul class="flex flex-col gap-3">
-            {#each room.history.slice(0, 3) as track (track.id)}
-              <li>
-                <Card.Root
-                  data-size="sm"
-                  class="flex min-w-0 flex-row items-center gap-4 p-3 opacity-60"
-                >
-                  <img
-                    src={track.song.artworkUrl}
-                    alt=""
-                    class="h-14 w-[4.5rem] shrink-0 rounded-lg object-cover"
-                  />
-                  <div class="min-w-0 flex-1">
-                    <p
-                      class="truncate text-lg font-medium"
-                      class:line-through={track.unplayableReason}
-                    >
-                      {track.song.title}
-                    </p>
-                    <p class="truncate text-base text-muted-foreground">{track.song.author}</p>
-                  </div>
-                </Card.Root>
-              </li>
+      <!-- The list, beside the track on a wide screen or under its own tab on a phone. -->
+      <aside
+        class={[
+          'min-w-0 flex-col gap-8',
+          tab === 'list' ? 'flex' : 'hidden',
+          'lg:flex'
+        ]}
+      >
+        <section class="flex min-w-0 flex-col gap-3">
+          <h2 class="text-sm uppercase tracking-widest text-muted-foreground">Playlist</h2>
+          <ul class="flex flex-col gap-1">
+            {#if nowPlaying}
+              {@render trackRow(nowPlaying.song, { active: true })}
+            {/if}
+            {#each room.queue.slice(0, 6) as track (track.id)}
+              {@render trackRow(track.song, {})}
             {/each}
           </ul>
+          {#if room.queue.length > 6}
+            <p class="text-sm text-muted-foreground">and {room.queue.length - 6} more</p>
+          {:else if !nowPlaying && room.queue.length === 0}
+            <p class="text-muted-foreground">Nothing waiting.</p>
+          {/if}
         </section>
-      {/if}
-    </aside>
+
+        {#if room.history.length > 0}
+          <section class="flex min-w-0 flex-col gap-3">
+            <h2 class="text-sm uppercase tracking-widest text-muted-foreground">Just played</h2>
+            <ul class="flex flex-col gap-1">
+              {#each room.history.slice(0, 3) as track (track.id)}
+                {@render trackRow(track.song, { dim: true, struck: !!track.unplayableReason })}
+              {/each}
+            </ul>
+          </section>
+        {/if}
+      </aside>
+    </div>
   </main>
 {/if}
 
