@@ -49,7 +49,12 @@ beforeEach(async () => {
   client = connect(`http://localhost:${port}`, {
     auth: { role: 'controller', joinCode: access.joinCode }
   });
-  await new Promise<void>((joined) => client.on('connect', () => joined()));
+  // Refusal is reported, not waited out: a handshake this test broke should say
+  // why rather than sit here until the runner's timeout kills it.
+  await new Promise<void>((joined, refused) => {
+    client.on('connect', () => joined());
+    client.on('connect_error', (error) => refused(error));
+  });
 });
 
 afterEach(async () => {
@@ -59,15 +64,18 @@ afterEach(async () => {
 });
 
 it('carries a Command over the socket into the reducer and a snapshot back out', async () => {
-  // The Command reaches the reducer: the ack comes back with what was added.
-  const acked = client.emitWithAck('track/add', 'fake:good') as Promise<AddResult>;
-
   // The snapshot comes back out: a `room` carrying the added Track is broadcast.
+  // Listening before emitting, so the assertion does not rest on the reply
+  // being unable to arrive mid-statement.
   const snapshot = new Promise<RoomState>((arrived) => {
     client.on('room', (state: RoomState) => {
       if (tracksIn(state).some((track) => track?.song.id === song.id)) arrived(state);
     });
   });
+
+  // The Command reaches the reducer: the ack comes back with what was added.
+  // A dropped ack fails here saying so, rather than as a bare runner timeout.
+  const acked = client.timeout(1000).emitWithAck('track/add', 'fake:good') as Promise<AddResult>;
 
   expect(await acked).toEqual({ ok: true, song });
   expect(tracksIn(await snapshot).map((track) => track?.song.id)).toContain(song.id);

@@ -4,6 +4,7 @@
   import * as Alert from '$lib/components/ui/alert';
   import { Button } from '$lib/components/ui/button';
   import * as Empty from '$lib/components/ui/empty';
+  import { Progress } from '$lib/components/ui/progress';
   import { Slider } from '$lib/components/ui/slider';
   import { createRoom } from '$lib/room.svelte';
   import { createProgress } from '$lib/progress.svelte';
@@ -49,6 +50,13 @@
   let volumeOpen = $state(false);
 
   const nowPlaying = $derived(room.nowPlaying);
+
+  // The dial is drawn inside the now-playing panel, so a Track ending unmounts
+  // it without closing it. Left alone it springs back open — backdrop and all,
+  // swallowing the first tap — the moment the next Track starts.
+  $effect(() => {
+    if (!nowPlaying) volumeOpen = false;
+  });
 
   const progress = createProgress(() => ({
     positionSeconds: room.transport.positionSeconds,
@@ -153,6 +161,14 @@
     return () => clearInterval(id);
   });
 </script>
+
+<!-- Escape puts the volume dial away, the same as tapping outside it. On the
+     window because the toggle keeps focus when the dial opens. -->
+<svelte:window
+  onkeydown={(event) => {
+    if (event.key === 'Escape') volumeOpen = false;
+  }}
+/>
 
 {#if !room.admitted}
   <JoinForm
@@ -261,12 +277,7 @@
           </div>
 
           <div class="flex w-full max-w-md flex-col gap-2">
-            <div class="relative h-1.5 w-full rounded-full bg-muted">
-              <div
-                class="absolute inset-y-0 left-0 rounded-full bg-primary"
-                style="width: {Math.min(100, progress.fraction * 100)}%"
-              ></div>
-            </div>
+            <Progress value={progress.fraction * 100} max={100} class="h-1.5" />
             <div class="flex justify-between text-xs tabular-nums text-muted-foreground">
               <span>{asMinutesAndSeconds(progress.seconds)}</span>
               <span>{asMinutesAndSeconds(nowPlaying.song.durationSeconds)}</span>

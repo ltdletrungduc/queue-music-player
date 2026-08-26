@@ -5,8 +5,12 @@
 @plugin "@iconify/tailwind4";
 @custom-variant dark (&:is(.dark *));
 
-/* The Slider styles its track and thumb per orientation with these variants, but
-   the primitive reports orientation as data-orientation, so map them onto that. */
+/* The Slider styles its track and thumb per orientation with these variants.
+   Tailwind's own data-* shorthand would read them as bare [data-horizontal] /
+   [data-vertical] attributes, which nothing sets — the classes compiled but
+   never matched. Point them at data-orientation, which the primitive does set.
+   This shadows the shorthand for these two keys across the app; only the Slider
+   uses them, and keeping the mapping here survives re-adding the shadcn file. */
 @custom-variant data-horizontal (&[data-orientation="horizontal"]);
 @custom-variant data-vertical (&[data-orientation="vertical"]);
 :root {
