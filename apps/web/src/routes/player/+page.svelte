@@ -47,6 +47,10 @@
   // Desktop shows the track and the list side by side; a narrow screen has room
   // for one at a time and switches between them.
   let tab = $state<'now' | 'list'>('now');
+  const tabs: { id: 'now' | 'list'; label: string }[] = [
+    { id: 'now', label: 'Now playing' },
+    { id: 'list', label: 'Playlist' }
+  ];
   let volumeOpen = $state(false);
 
   const nowPlaying = $derived(room.nowPlaying);
@@ -218,26 +222,18 @@
     <!-- One screen at a time on a phone; the segmented control switches between them. -->
     <div class="flex justify-center p-4 lg:hidden">
       <div class="inline-flex rounded-full bg-muted p-1">
-        <button
-          type="button"
-          class={[
-            'rounded-full px-5 py-1.5 text-sm font-medium transition-colors',
-            tab === 'now' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground'
-          ]}
-          onclick={() => (tab = 'now')}
-        >
-          Now playing
-        </button>
-        <button
-          type="button"
-          class={[
-            'rounded-full px-5 py-1.5 text-sm font-medium transition-colors',
-            tab === 'list' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground'
-          ]}
-          onclick={() => (tab = 'list')}
-        >
-          Playlist
-        </button>
+        {#each tabs as { id, label } (id)}
+          <button
+            type="button"
+            class={[
+              'rounded-full px-5 py-1.5 text-sm font-medium transition-colors',
+              tab === id ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground'
+            ]}
+            onclick={() => (tab = id)}
+          >
+            {label}
+          </button>
+        {/each}
       </div>
     </div>
 
