@@ -1,5 +1,6 @@
 import { generateKeyBetween } from 'fractional-indexing';
 export { emptyRoom } from '@qmp/shared';
+import { isMuted } from '@qmp/shared';
 import type {
   Command,
   Ctx,
@@ -442,7 +443,7 @@ export function reduce(state: RoomState, command: Command, ctx: Ctx): Reduced {
       // Setting the level by hand is the plainest way of saying how loud the
       // Room should be, so it ends any mute — including a move to zero, which
       // changes no level but does change what unmuting would do.
-      const wasMuted = typeof state.transport.volumeBeforeMute === 'number';
+      const wasMuted = isMuted(state.transport);
       if (volume === state.transport.volume && !wasMuted) return unchanged(state);
       return broadcast(
         attributed({ ...state, transport: { ...state.transport, volume, volumeBeforeMute: null } }, {
@@ -457,7 +458,12 @@ export function reduce(state: RoomState, command: Command, ctx: Ctx): Reduced {
     case 'transport/muted': {
       // Muting a Room that is already hushed would overwrite the level it was
       // hushed from with zero, and there would be nothing to come back to.
-      if (typeof state.transport.volumeBeforeMute === 'number') return unchanged(state);
+      if (isMuted(state.transport)) return unchanged(state);
+      // Nor is there anything to hush when the dial is already at the bottom.
+      // Saying "muted it" over a speaker that was making no sound would name a
+      // change the room did not hear, and leave the icon claiming a hush that
+      // unmuting could not lift.
+      if (state.transport.volume === 0) return unchanged(state);
       return broadcast(
         attributed(
           {
@@ -474,6 +480,8 @@ export function reduce(state: RoomState, command: Command, ctx: Ctx): Reduced {
     }
 
     case 'transport/unmuted': {
+      // The question isMuted asks, asked where the answer has to narrow to a
+      // number the Transport can be set back to.
       const before = state.transport.volumeBeforeMute;
       if (typeof before !== 'number') return unchanged(state);
       return broadcast(
