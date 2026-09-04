@@ -61,7 +61,7 @@ describe('a direct audio link, for real', () => {
   it('refuses a file that is not there', async () => {
     expect(await provider.validate(MISSING)).toEqual({
       ok: false,
-      reason: 'That file is missing, or the link has expired.'
+      reason: 'That file is missing, private, or the link has expired.'
     });
   }, 30_000);
 });

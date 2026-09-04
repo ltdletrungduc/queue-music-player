@@ -30,7 +30,7 @@ thing that is forgotten later.
 
 So the choice was one path against none, and one path won.
 
-## What it costs
+## What it cost
 
 The bytes of a direct-link Song pass through this process. ADR-0002 already
 accepts that cost for YouTube and for the same reason it is small: the Extractor
@@ -42,6 +42,12 @@ time; an ordinary file server does not, so asking for the whole file is both
 simpler and faster.
 
 ## Consequences
+
+A Song whose length cannot be read is queued anyway, where ADR-0002 refuses the
+YouTube equivalent. That is not a change of mind: YouTube's refusal exists
+because a range cannot be asked for without a length, and this Source asks for
+no ranges. The cost is that such a Song shows `0:00` for its whole play, because
+nothing reports a length back once the audio is open.
 
 A direct-link Stream that ends before the host's `Content-Length` is failed
 rather than closed, exactly as ADR-0002 requires of a YouTube one and for the
@@ -65,6 +71,11 @@ perfectly public can answer `302` pointing at the home router; and the playing
 read is checked as well as the describing one, because a Song saved in a
 Playlist is fetched again every night it is played, long after the paste that
 admitted it.
+
+The addresses themselves are a written list — loopback, link-local, the private
+ranges, carrier-grade NAT, and their IPv6 spellings — kept as a list rather than
+one expression because both faults found in it so far were missing entries
+rather than wrong ones.
 
 What still gets through is a name that resolves to a private address: the check
 reads addresses, not DNS. Closing that means resolving the name here and pinning
