@@ -103,7 +103,8 @@ describe('validating a direct audio link', () => {
 
   /**
    * A length that cannot be read is not a reason to refuse the Song: it plays
-   * perfectly well, and the Player learns the real length when it opens it.
+   * perfectly well. It costs the progress bar, which sits at 0:00 for the whole
+   * Track, because nothing reports a length back once the audio is open.
    */
   it('queues a Song whose length the file did not say', async () => {
     const provider = providerWith(lookup({ ...found, durationSeconds: null }));
