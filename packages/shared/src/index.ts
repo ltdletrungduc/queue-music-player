@@ -60,6 +60,15 @@ export type Transport = {
   isPlaying: boolean;
   /** The Player's own output level, between 0 and 1. Not the speaker's dial. */
   volume: number;
+  /**
+   * The level to come back to when the Player is unmuted, and null when it is
+   * not muted.
+   *
+   * Silence is a volume of zero like any other, so without this there is no
+   * telling a Room somebody hushed for the doorbell from one somebody turned all
+   * the way down — and no way to put it back where it was.
+   */
+  volumeBeforeMute: number | null;
   /** How far into Now Playing the audio had reached when last reported. */
   positionSeconds: number;
   /** When that report was made, so a Controller can carry the clock forward itself. */
@@ -86,6 +95,8 @@ export type RoomAction = {
       did:
         | 'paused'
         | 'resumed'
+        | 'muted'
+        | 'unmuted'
         | 'skipped'
         | 'previous'
         | 'restarted'
@@ -130,6 +141,7 @@ export const emptyRoom = (): RoomState => ({
   transport: {
     isPlaying: false,
     volume: 1,
+    volumeBeforeMute: null,
     positionSeconds: 0,
     positionReportedAt: 0,
     startedAt: 0,

@@ -439,14 +439,48 @@ export function reduce(state: RoomState, command: Command, ctx: Ctx): Reduced {
 
     case 'transport/volume': {
       const volume = clamp(command.volume);
-      if (volume === state.transport.volume) return unchanged(state);
+      // Setting the level by hand is the plainest way of saying how loud the
+      // Room should be, so it ends any mute — including a move to zero, which
+      // changes no level but does change what unmuting would do.
+      const wasMuted = typeof state.transport.volumeBeforeMute === 'number';
+      if (volume === state.transport.volume && !wasMuted) return unchanged(state);
       return broadcast(
-        attributed({ ...state, transport: { ...state.transport, volume } }, {
+        attributed({ ...state, transport: { ...state.transport, volume, volumeBeforeMute: null } }, {
           nickname: command.nickname,
           did: 'volume',
           volume,
           at: ctx.now
         })
+      );
+    }
+
+    case 'transport/muted': {
+      // Muting a Room that is already hushed would overwrite the level it was
+      // hushed from with zero, and there would be nothing to come back to.
+      if (typeof state.transport.volumeBeforeMute === 'number') return unchanged(state);
+      return broadcast(
+        attributed(
+          {
+            ...state,
+            transport: {
+              ...state.transport,
+              volume: 0,
+              volumeBeforeMute: state.transport.volume
+            }
+          },
+          { nickname: command.nickname, did: 'muted', at: ctx.now }
+        )
+      );
+    }
+
+    case 'transport/unmuted': {
+      const before = state.transport.volumeBeforeMute;
+      if (typeof before !== 'number') return unchanged(state);
+      return broadcast(
+        attributed(
+          { ...state, transport: { ...state.transport, volume: before, volumeBeforeMute: null } },
+          { nickname: command.nickname, did: 'unmuted', at: ctx.now }
+        )
       );
     }
 
