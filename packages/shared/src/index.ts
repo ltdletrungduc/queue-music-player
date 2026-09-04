@@ -3,7 +3,7 @@
  * that display it. See CONTEXT.md for what each term means.
  */
 
-export type SourceName = 'youtube';
+export type SourceName = 'youtube' | 'url';
 
 /** A piece of audio at a Source, independent of anywhere it appears. */
 export type Song = {

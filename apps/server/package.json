@@ -8,7 +8,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test:contract": "CONTRACT=1 vitest run src/sources/youtube.contract.test.ts",
+    "test:contract": "CONTRACT=1 vitest run contract.test.ts",
     "start": "node dist/index.js"
   },
   "dependencies": {
@@ -17,6 +17,7 @@
     "fastify": "^5.2.0",
     "firebase-admin": "^14.3.0",
     "fractional-indexing": "^3.2.0",
+    "music-metadata": "^11.15.0",
     "socket.io": "^4.8.1",
     "youtubei.js": "^18.0.0"
   },

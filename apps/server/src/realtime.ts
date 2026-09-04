@@ -127,8 +127,10 @@ export function attachRealtime(io: SocketServer, deps: RealtimeDeps): void {
           { url: typeof url === 'string' ? url : '', controllerId, nickname }
         );
       } catch {
+        // Each Source says for itself why it could not answer, so reaching here
+        // means something else did — and naming a Source would be a guess.
         forgetSources();
-        result = { ok: false, reason: 'Could not reach YouTube. Try again.' };
+        result = { ok: false, reason: 'Could not add that link. Try again.' };
       }
       apply(effects);
       ack?.(result);

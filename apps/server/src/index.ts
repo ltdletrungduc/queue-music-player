@@ -9,6 +9,8 @@ import { createRoomRuntime } from './room/room.js';
 import { attachRealtime } from './realtime.js';
 import { openRoomStore } from './persistence/firestore-room-store.js';
 import { createYouTubeProvider } from './sources/youtube.js';
+import { createDirectUrlProvider } from './sources/direct-url.js';
+import { httpAudioLookup, httpAudioStream } from './sources/http-audio.js';
 import {
   createInnertube,
   innertubeLookup,
@@ -50,16 +52,57 @@ const room = await createRoomRuntime(store, { now: Date.now, newId: randomUUID }
 });
 
 /**
- * The Source is reached for on first use, not at startup: a Room whose Queue is
- * already saved should still come up when YouTube is unreachable, and the
- * provider already has something sensible to say when it cannot be reached.
+ * A direct audio link needs no session and no set-up, so this one is made once
+ * and stands for the whole night. Nothing about it can go stale, which is why it
+ * is not part of what forgetSources throws away.
  */
-let providers: Promise<SourceProvider[]> | undefined;
-const sources = () =>
-  (providers ??= createInnertube().then((yt) => [
-    createYouTubeProvider(innertubeLookup(yt), innertubeStream(yt))
-  ]));
-const forgetSources = () => void (providers = undefined);
+const directUrl = createDirectUrlProvider(httpAudioLookup, httpAudioStream);
+
+/**
+ * YouTube, by contrast, is reached for on first use, not at startup: a Room
+ * whose Queue is already saved should still come up when YouTube is
+ * unreachable.
+ */
+let youtube: Promise<SourceProvider> | undefined;
+const forgetSources = () => void (youtube = undefined);
+
+/**
+ * What speaks for YouTube when no session could be made.
+ *
+ * It still recognises a YouTube link, so that pasting one is answered with why
+ * it cannot be played rather than with the Room claiming never to have heard of
+ * YouTube — which is what a missing provider would say, and is both untrue and
+ * no help.
+ *
+ * It is the ordinary provider with nothing behind it, rather than a second thing
+ * shaped like one, so the words a Controller reads are written once: a lookup
+ * that cannot answer is exactly what YouTube being unreachable means.
+ */
+const noSession = async () => {
+  throw new Error('There is no YouTube session to ask');
+};
+const youtubeIsUnreachable = createYouTubeProvider(noSession, noSession);
+
+/**
+ * Everything the Room can play.
+ *
+ * YouTube failing to open costs YouTube links and nothing else: a direct link
+ * needs no session, and waiting on one that will never come would make somebody
+ * else's outage into this Room's. A session that could not be made is dropped
+ * rather than kept, or every later paste would fail on the same stale refusal.
+ */
+const sources = async (): Promise<SourceProvider[]> => {
+  try {
+    const provider = await (youtube ??= createInnertube().then((yt) =>
+      createYouTubeProvider(innertubeLookup(yt), innertubeStream(yt))
+    ));
+    return [provider, directUrl];
+  } catch (error) {
+    forgetSources();
+    console.error('Could not open a YouTube session; only direct links will play.', error);
+    return [youtubeIsUnreachable, directUrl];
+  }
+};
 
 const app = Fastify({ logger: false });
 app.get('/health', async () => ({ ok: true }));
@@ -96,18 +139,20 @@ if (process.env['NODE_ENV'] !== 'development' && existsSync(CLIENT_BUILD)) {
 /**
  * Tickets for the audio endpoint, one per Player connection.
  *
- * An audio element cannot send credentials, and a Song's id is simply its
- * YouTube id, so an ungated endpoint would let anyone who found the address
- * stream anything through this machine's connection. Each admitted Player is
- * handed a throwaway ticket instead, which dies with its connection. The
- * password itself never travels in a URL.
+ * An audio element cannot send credentials, and a Song's id is little more than
+ * where it came from, so an ungated endpoint would let anyone who found the
+ * address stream anything through this machine's connection. Each admitted
+ * Player is handed a throwaway ticket instead, which dies with its connection.
+ * The password itself never travels in a URL.
  */
 const streamTickets = new Set<string>();
 
 /**
- * The Player's audio element pulls from here. The bytes come from the Extractor
- * rather than from YouTube directly, because the media host only permits the
- * YouTube origin, so a browser cannot fetch them for itself. See ADR-0002.
+ * The Player's audio element pulls from here, whatever the Source. For YouTube
+ * the bytes have to come this way, because the media host only permits the
+ * YouTube origin and a browser cannot fetch them for itself (ADR-0002). For a
+ * direct audio link they need not, and do anyway, so that the Player has one
+ * address to play and one way for a Song to fail. See ADR-0005.
  */
 app.get<{ Params: { songId: string }; Querystring: { ticket?: string } }>(
   '/stream/:songId',
@@ -137,8 +182,9 @@ app.get<{ Params: { songId: string }; Querystring: { ticket?: string } }>(
       .send(Readable.fromWeb(stream.body as Parameters<typeof Readable.fromWeb>[0]));
   } catch (error) {
     // A verdict about this one video says nothing about the session; anything
-    // else might mean the session itself is spent.
-    if (!isVerdictAboutTheVideo(error)) forgetSources();
+    // else might mean the session itself is spent. Only YouTube has a session to
+    // spend, so a file server having a bad moment must not cost one.
+    if (song.source === 'youtube' && !isVerdictAboutTheVideo(error)) forgetSources();
     request.log.error(error);
     return reply.code(502).send({ reason: 'Could not open that Song.' });
   }
