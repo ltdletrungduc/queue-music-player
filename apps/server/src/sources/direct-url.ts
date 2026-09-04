@@ -46,35 +46,51 @@ export function directAudioUrl(url: string): string | null {
 }
 
 /**
- * Hosts the server will not fetch on a Controller's say-so.
+ * Addresses the server will not fetch on a Controller's say-so.
  *
  * Unlike YouTube, this Source fetches whatever address was pasted, from the
- * machine standing in the room. Without this, anyone holding the Join Code
- * could aim that fetch at the home router or a cloud metadata endpoint and read
- * the answer back as a Song title.
+ * machine standing in the room. Without this, anyone holding the Join Code could
+ * aim that fetch at the home router or a cloud metadata endpoint and read the
+ * answer back as a Song title.
  *
- * Written-out addresses are normalised before this sees them, so the decimal
- * and hexadecimal spellings of a loopback address (`2130706433`, `0x7f000001`,
- * `127.1`) all arrive here as `127.0.0.1`. An IPv4 address mapped into IPv6 does
- * not normalise back, so that whole family is refused: nobody pastes one by
- * accident.
+ * Written as a list rather than one long expression because it is read far more
+ * often than it is run, and because the two gaps found in it so far were both
+ * missing entries rather than wrong ones. Each line says what it keeps out.
  *
- * This still reads the address as written; a name that resolves to a private
- * address gets through. That is a real gap, and closing it means resolving the
- * name here and pinning the connection to the address that came back — worth
- * doing if this ever runs anywhere but a laptop at a party.
+ * Written-out addresses are normalised before this sees them, so the decimal and
+ * hexadecimal spellings of a loopback address (`2130706433`, `0x7f000001`,
+ * `127.1`) all arrive as `127.0.0.1`. IPv6 keeps its brackets, hence the `\[?`.
  */
-const THIS_NETWORK =
-  /^(localhost|.*\.local|0\..*|127\..*|10\..*|192\.168\..*|169\.254\..*|172\.(1[6-9]|2\d|3[01])\..*|\[?::1\]?|\[?::ffff:.*|\[?f[cd][0-9a-f]{2}:.*)$/i;
+const PRIVATE_ADDRESSES = [
+  /^localhost$/i,
+  /\.local$/i, // the printer, the router, anything answering to Bonjour
+  /^0\./i, // this host, by another name
+  /^127\./i, // loopback
+  /^10\./i, // private
+  /^192\.168\./i, // private
+  /^172\.(1[6-9]|2\d|3[01])\./i, // private
+  /^169\.254\./i, // link-local, which is where cloud metadata lives
+  /^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./i, // carrier-grade NAT
+  /^\[?::1\]?$/i, // loopback, in IPv6
+  /^\[?::ffff:/i, // IPv4 mapped into IPv6, which does not normalise back
+  /^\[?f[cd][0-9a-f]{2}:/i, // unique local, in IPv6
+  /^\[?fe[89a-f][0-9a-f]:/i // link- and site-local, the IPv6 spelling of 169.254
+];
 
 /**
- * Whether an address belongs to the network this machine is standing on.
+ * Whether an address is one nobody outside this network could have meant.
  *
  * Asked once when a link is pasted, and again at every hop of every fetch made
  * for it: a host that was fine when it was checked can still answer with a
  * redirect pointing somewhere that is not.
+ *
+ * It reads the address as written, and does not resolve names — so a hostname
+ * pointing at a private address still gets through. Closing that means resolving
+ * the name here and pinning the connection to the address that came back, which
+ * is worth doing if this ever runs anywhere but a laptop at a party.
  */
-export const isOnThisNetwork = (hostname: string): boolean => THIS_NETWORK.test(hostname);
+export const isPrivateAddress = (hostname: string): boolean =>
+  PRIVATE_ADDRESSES.some((pattern) => pattern.test(hostname));
 
 /**
  * What reading the head of a file tells us about it, or null when there is no
@@ -113,7 +129,10 @@ export function createDirectUrlProvider(
       if (!audioUrl) return { ok: false, reason: "That doesn't look like a link to an audio file." };
 
       const host = new URL(audioUrl).hostname;
-      if (isOnThisNetwork(host)) {
+      // Checked again at every hop of every fetch, in http-audio.ts. This copy
+      // is not redundant: it is what turns a pasted LAN address into a reason
+      // that says so, rather than into a failed fetch reported as a bad moment.
+      if (isPrivateAddress(host)) {
         return { ok: false, reason: "That link points inside this machine's own network." };
       }
 
@@ -124,7 +143,11 @@ export function createDirectUrlProvider(
         return { ok: false, reason: `Could not reach ${host}. Try again.` };
       }
 
-      if (!found) return { ok: false, reason: 'That file is missing, or the link has expired.' };
+      // One reason for the whole family, as YouTube gives one for private,
+      // deleted and never-existed alike: from out here they are the same answer.
+      if (!found) {
+        return { ok: false, reason: 'That file is missing, private, or the link has expired.' };
+      }
 
       // A host that names a type has to name one that could be audio. Ogg is
       // named as an application type by everyone who serves it, and a host

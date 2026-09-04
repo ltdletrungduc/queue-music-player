@@ -125,7 +125,7 @@ describe('validating a direct audio link', () => {
     const provider = providerWith(lookup(null));
     expect(await provider.validate('https://example.test/track.mp3')).toEqual({
       ok: false,
-      reason: "That file is missing, or the link has expired."
+      reason: 'That file is missing, private, or the link has expired.'
     });
   });
 
@@ -179,7 +179,13 @@ describe('validating a direct audio link', () => {
     'http://2130706433/track.mp3',
     'http://0x7f000001/track.mp3',
     'http://127.1/track.mp3',
-    'http://[::ffff:127.0.0.1]/track.mp3'
+    'http://[::ffff:127.0.0.1]/track.mp3',
+    // IPv6 link-local is where 169.254 goes in IPv6, and carrier-grade NAT is
+    // somebody else's private network rather than ours — neither is reachable
+    // from outside, so neither is a link anybody meant to paste.
+    'http://[fe80::1]/track.mp3',
+    'http://[fec0::1]/track.mp3',
+    'http://100.64.0.1/track.mp3'
   ])('refuses %s, which points back at this network', async (url) => {
     const provider = providerWith(lookup(found));
     expect(await provider.validate(url)).toEqual({

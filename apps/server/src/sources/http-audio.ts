@@ -1,5 +1,5 @@
 import { parseWebStream } from 'music-metadata';
-import { isOnThisNetwork } from './direct-url.js';
+import { isPrivateAddress } from './direct-url.js';
 import type { SongLookup, StreamLookup } from './direct-url.js';
 
 /**
@@ -11,6 +11,16 @@ import type { SongLookup, StreamLookup } from './direct-url.js';
  * somebody pasted should not cost them a download of it.
  */
 const PROBE_BYTES = 512 * 1024;
+
+/**
+ * The answers that mean there is no file at the end of this link.
+ *
+ * Everything else in the 400s is the host refusing the request rather than
+ * disowning the file — a `Range` it will not serve, a method it will not take —
+ * and calling those "missing" would be confidently wrong. They are thrown, and
+ * read as a bad moment.
+ */
+const SAYS_NO_SUCH_FILE = new Set([401, 403, 404, 410]);
 
 /** How many redirects a link may take before it is treated as going nowhere. */
 const REDIRECT_LIMIT = 5;
@@ -36,7 +46,7 @@ async function fetchOffThisNetwork(url: string, init: RequestInit): Promise<Resp
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
       throw new Error(`That link leads somewhere we cannot fetch (${parsed.protocol})`);
     }
-    if (isOnThisNetwork(parsed.hostname)) {
+    if (isPrivateAddress(parsed.hostname)) {
       throw new Error("That link leads inside this machine's own network");
     }
 
@@ -80,10 +90,11 @@ export const httpAudioLookup: SongLookup = async (url) => {
       signal: reading.signal
     });
 
-    // Anything the host blames on the request is a verdict about this link:
-    // missing, private, or expired. Anything it blames on itself is a bad
-    // moment, and is thrown so the Controller is told to try again.
-    if (response.status >= 400 && response.status < 500) return null;
+    // A verdict about this link — there is nothing here we may have — is not the
+    // same as the host having a bad moment, and neither is it the same as the
+    // host disliking the request itself. Only the first means "pick another
+    // link"; the other two mean "try again".
+    if (SAYS_NO_SUCH_FILE.has(response.status)) return null;
     if (!response.ok || !response.body) {
       throw new Error(`${new URL(url).hostname} answered ${response.status}`);
     }
