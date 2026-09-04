@@ -33,12 +33,23 @@
     room.setVolume(next);
   }
 
+  // Asked as "is there a level to come back to" rather than "is this not null",
+  // so a Room that predates the field reads as unmuted rather than as silent.
+  const muted = $derived(typeof room.transport.volumeBeforeMute === 'number');
+
+  /**
+   * Hushed and turned-all-the-way-down look the same on a dial and are not the
+   * same thing: one comes back to where it was, the other does not. The crossed
+   * speaker is kept for the first so the icon says which of the two this is.
+   */
   const volumeIcon = $derived(
-    volume === 0
+    muted
       ? 'icon-[ic--round-volume-off]'
-      : volume < 0.5
-        ? 'icon-[ic--round-volume-down]'
-        : 'icon-[ic--round-volume-up]'
+      : volume === 0
+        ? 'icon-[ic--round-volume-mute]'
+        : volume < 0.5
+          ? 'icon-[ic--round-volume-down]'
+          : 'icon-[ic--round-volume-up]'
   );
 
   let started = $state(false);
@@ -52,6 +63,8 @@
     { id: 'list', label: 'Playlist' }
   ];
   let volumeOpen = $state(false);
+  /** The dial and the buttons that open it, so a press outside them can close it. */
+  let volumeControls = $state<HTMLElement>();
 
   const nowPlaying = $derived(room.nowPlaying);
 
@@ -166,11 +179,22 @@
   });
 </script>
 
-<!-- Escape puts the volume dial away, the same as tapping outside it. On the
-     window because the toggle keeps focus when the dial opens. -->
+<!-- Escape puts the volume dial away, the same as pressing outside it. On the
+     window because the toggle keeps focus when the dial opens.
+
+     Pressing away from the dial closes it by listening rather than by covering
+     the screen with something to press. A backdrop did that once, and because it
+     lay over the transport it took the press with it: whoever reached for Pause
+     while the dial was open only put the dial away, and had to press again. -->
 <svelte:window
   onkeydown={(event) => {
     if (event.key === 'Escape') volumeOpen = false;
+  }}
+  onpointerdown={(event) => {
+    if (!volumeOpen) return;
+    const target = event.target;
+    if (target instanceof Node && volumeControls?.contains(target)) return;
+    volumeOpen = false;
   }}
 />
 
@@ -310,32 +334,38 @@
               <span class="icon-[ic--round-skip-next] size-9"></span>
             </button>
 
-            <!-- Volume opens a vertical dial, off to the side of the transport. -->
-            <div class="absolute right-0">
+            <!-- Silence in one press, and the dial beside it for a level. -->
+            <div class="absolute right-0 flex items-center gap-1" bind:this={volumeControls}>
               <button
                 type="button"
                 class="grid size-12 place-items-center rounded-full text-muted-foreground transition-colors hover:text-foreground"
-                onclick={() => (volumeOpen = !volumeOpen)}
-                aria-label="Volume"
-                aria-expanded={volumeOpen}
+                onclick={() => (muted ? room.unmute() : room.mute())}
+                aria-label={muted ? 'Unmute' : 'Mute'}
+                aria-pressed={muted}
               >
                 <span class="{volumeIcon} size-7"></span>
               </button>
+              <button
+                type="button"
+                class="grid size-8 place-items-center rounded-full text-muted-foreground transition-colors hover:text-foreground"
+                onclick={() => (volumeOpen = !volumeOpen)}
+                aria-label="Set the volume"
+                aria-expanded={volumeOpen}
+              >
+                <span
+                  class="icon-[ic--round-keyboard-arrow-up] size-5 transition-transform"
+                  class:rotate-180={volumeOpen}
+                ></span>
+              </button>
               {#if volumeOpen}
-                <!-- A tap anywhere else puts the dial away. -->
-                <button
-                  type="button"
-                  class="fixed inset-0 z-20 cursor-default"
-                  tabindex="-1"
-                  aria-hidden="true"
-                  onclick={() => (volumeOpen = false)}
-                ></button>
                 <div
-                  class="absolute bottom-full left-1/2 z-30 mb-3 flex -translate-x-1/2 flex-col items-center gap-3 rounded-2xl border bg-popover p-4 shadow-xl"
+                  class="absolute bottom-full right-0 z-30 mb-3 flex flex-col items-center gap-3 rounded-2xl border bg-popover p-4 shadow-xl"
                 >
                   <span class="w-12 text-center text-sm tabular-nums text-muted-foreground"
-                    >{Math.round(volume * 100)}%</span
+                    >{muted ? 'Muted' : `${Math.round(volume * 100)}%`}</span
                   >
+                  <!-- The track stays as thin as it looks; the padding is what
+                       widens the part a finger has to land on. -->
                   <Slider
                     type="single"
                     orientation="vertical"
@@ -346,9 +376,8 @@
                     onValueChange={setVolume}
                     onValueCommit={() => (volumeDraft = null)}
                     aria-label="Volume"
-                    class="h-40"
+                    class="h-40 px-4"
                   />
-                  <span class="icon-[ic--round-volume-mute] size-5 text-muted-foreground"></span>
                 </div>
               {/if}
             </div>

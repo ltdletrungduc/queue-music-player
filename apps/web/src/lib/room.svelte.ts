@@ -261,7 +261,9 @@ export function createRoom() {
     renamePlaylist: (playlistId: string, name: string) =>
       socket?.emit('playlist/renamed', playlistId, name),
     loadPlaylist: (playlistId: string) => socket?.emit('playlist/loaded', playlistId),
-    setVolume: (volume: number) => socket?.emit('transport/volume', volume)
+    setVolume: (volume: number) => socket?.emit('transport/volume', volume),
+    mute: () => socket?.emit('transport/muted'),
+    unmute: () => socket?.emit('transport/unmuted')
 
     ,
 

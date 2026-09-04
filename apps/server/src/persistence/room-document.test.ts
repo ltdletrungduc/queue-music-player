@@ -96,6 +96,7 @@ describe('a Room store', () => {
       transport: {
         isPlaying: true,
         volume: 0.5,
+        volumeBeforeMute: null,
         positionSeconds: 91,
         positionReportedAt: 1234,
         startedAt: 1000,

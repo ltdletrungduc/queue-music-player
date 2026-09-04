@@ -38,6 +38,8 @@ export type Command =
   | { type: 'transport/skipped'; trackId: string; nickname: string }
   | { type: 'transport/previous'; trackId: string; nickname: string }
   | { type: 'transport/volume'; volume: number; nickname: string }
+  | { type: 'transport/muted'; nickname: string }
+  | { type: 'transport/unmuted'; nickname: string }
   | { type: 'player/position'; trackId: string; positionSeconds: number };
 
 /**

@@ -228,6 +228,14 @@ export function attachRealtime(io: SocketServer, deps: RealtimeDeps): void {
       apply(room.dispatch({ type: 'transport/previous', trackId, nickname }));
     });
 
+    socket.on('transport/muted', () => {
+      if (drivesTheTransport) apply(room.dispatch({ type: 'transport/muted', nickname }));
+    });
+
+    socket.on('transport/unmuted', () => {
+      if (drivesTheTransport) apply(room.dispatch({ type: 'transport/unmuted', nickname }));
+    });
+
     socket.on('transport/volume', (volume: unknown) => {
       if (!drivesTheTransport || typeof volume !== 'number' || Number.isNaN(volume)) return;
       apply(room.dispatch({ type: 'transport/volume', volume, nickname }));

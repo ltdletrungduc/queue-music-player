@@ -14,6 +14,10 @@ export function describeAction(action: {
       return 'paused';
     case 'resumed':
       return 'started it again';
+    case 'muted':
+      return 'muted it';
+    case 'unmuted':
+      return 'turned the sound back on';
     case 'skipped':
       return 'skipped';
     case 'previous':
