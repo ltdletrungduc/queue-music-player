@@ -48,6 +48,43 @@ describe('adding a Track by pasting a link', () => {
     expect(commands).toEqual([]);
   });
 
+  /**
+   * The Room has two Sources in it, and nothing above the providers decides
+   * between them — whichever claims the link gets it. That is the whole of the
+   * routing, so it is worth watching happen with both of them present rather
+   * than only asking each one separately whether it would have claimed the link.
+   */
+  it('sends each link to the Source that claims it, with two to choose from', async () => {
+    const fromAFile: Song = {
+      ...song,
+      id: 'url:https://example.test/a.mp3',
+      source: 'url',
+      sourceId: 'https://example.test/a.mp3'
+    };
+    const both: SourceProvider[] = [
+      fakeProvider({ 'fake:good': song }),
+      fakeProvider({ 'file:good': fromAFile }, { source: 'url', claims: 'file:' })
+    ];
+
+    const video = await addTrackByUrl(both, spy().dispatch, { url: 'fake:good', ...who });
+    const file = await addTrackByUrl(both, spy().dispatch, { url: 'file:good', ...who });
+
+    expect(video.ok && video.song.source).toBe('youtube');
+    expect(file.ok && file.song.source).toBe('url');
+  });
+
+  it('still refuses a link neither Source claims', async () => {
+    const both: SourceProvider[] = [
+      fakeProvider({ 'fake:good': song }),
+      fakeProvider({}, { source: 'url', claims: 'file:' })
+    ];
+    const { commands, dispatch } = spy();
+
+    const result = await addTrackByUrl(both, dispatch, { url: 'https://example.test/x', ...who });
+    expect(result).toEqual({ ok: false, reason: "That link isn't from anywhere we can play." });
+    expect(commands).toEqual([]);
+  });
+
   it('hands the link to the Source that recognises it', async () => {
     const other: SourceProvider = {
       source: 'youtube',
