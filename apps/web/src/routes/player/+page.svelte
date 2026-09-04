@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy, untrack } from 'svelte';
+  import Artwork from '$lib/components/artwork.svelte';
   import JoinForm from '$lib/components/join-form.svelte';
   import * as Alert from '$lib/components/ui/alert';
   import { Button } from '$lib/components/ui/button';
@@ -202,7 +203,7 @@
         opts.dim && 'opacity-50'
       ]}
     >
-      <img src={song.artworkUrl} alt="" class="size-12 shrink-0 rounded-lg object-cover" />
+      <Artwork src={song.artworkUrl} class="size-12 shrink-0 rounded-lg" />
       <div class="min-w-0 flex-1">
         <p class={['truncate font-medium', opts.struck && 'line-through']}>
           {song.title}
@@ -250,11 +251,12 @@
       >
         {#if nowPlaying}
           <div class="w-full max-w-[18rem] lg:max-w-sm">
-            <img
+            <Artwork
               src={nowPlaying.song.artworkUrl}
-              alt=""
-              class="aspect-square w-full rounded-full object-cover shadow-xl ring-1 ring-border transition-opacity"
-              class:opacity-40={!room.transport.isPlaying}
+              class={[
+                'aspect-square w-full rounded-full shadow-xl ring-1 ring-border transition-opacity',
+                !room.transport.isPlaying && 'opacity-40'
+              ]}
             />
           </div>
 
