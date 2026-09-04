@@ -13,6 +13,7 @@
   import * as InputGroup from '$lib/components/ui/input-group';
   import { Progress } from '$lib/components/ui/progress';
   import { Separator } from '$lib/components/ui/separator';
+  import Artwork from '$lib/components/artwork.svelte';
   import JoinForm from '$lib/components/join-form.svelte';
   import SaveToPlaylist from '$lib/components/save-to-playlist.svelte';
   import { createRoom, remembered } from '$lib/room.svelte';
@@ -196,11 +197,7 @@
     <Card.Root>
       <Card.Header class="min-w-0 gap-3">
         <div class="flex min-w-0 items-center gap-3">
-          <img
-            src={track.song.artworkUrl}
-            alt=""
-            class="h-14 w-[4.5rem] shrink-0 rounded-md object-cover"
-          />
+          <Artwork src={track.song.artworkUrl} class="h-14 w-[4.5rem] shrink-0 rounded-md" />
           <div class="min-w-0 flex-1">
             <Badge variant="secondary">
               {room.transport.isPlaying ? 'Now playing' : 'Paused'}
@@ -244,8 +241,8 @@
         bind:value={url}
         type="url"
         inputmode="url"
-        placeholder="Paste a YouTube link"
-        aria-label="YouTube link"
+        placeholder="Paste a YouTube or audio file link"
+        aria-label="Link to add"
         aria-invalid={problem ? true : undefined}
       />
       <InputGroup.Addon align="inline-end">
@@ -275,7 +272,7 @@
             <span class="icon-[ic--round-queue-music] size-5"></span>
           </Empty.Media>
           <Empty.Title>Nothing queued yet</Empty.Title>
-          <Empty.Description>Paste a YouTube link to start the night off.</Empty.Description>
+          <Empty.Description>Paste a link to start the night off.</Empty.Description>
         </Empty.Header>
       </Empty.Root>
     {:else}
@@ -310,11 +307,7 @@
               aria-hidden="true"
               class="icon-[ic--round-drag-indicator] size-5 shrink-0 cursor-grab text-muted-foreground"
             ></span>
-            <img
-              src={track.song.artworkUrl}
-              alt=""
-              class="h-10 w-[3.25rem] shrink-0 rounded object-cover"
-            />
+            <Artwork src={track.song.artworkUrl} class="h-10 w-[3.25rem] shrink-0 rounded" />
             <div class="min-w-0 flex-1">
               <p class="truncate text-sm font-medium">{track.song.title}</p>
               <p class="truncate text-xs text-muted-foreground">
@@ -357,11 +350,7 @@
       <ul class="flex flex-col gap-1">
         {#each room.history as track (track.id)}
           <li class="flex items-center gap-3 rounded-lg px-2 py-1.5 text-muted-foreground">
-            <img
-              src={track.song.artworkUrl}
-              alt=""
-              class="h-8 w-10 shrink-0 rounded object-cover opacity-50"
-            />
+            <Artwork src={track.song.artworkUrl} class="h-8 w-10 shrink-0 rounded opacity-50" />
             <div class="min-w-0 flex-1">
               <p class="truncate text-xs" class:line-through={track.unplayableReason}>
                 {track.song.title}

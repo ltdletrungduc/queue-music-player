@@ -28,7 +28,9 @@ export function publishToMediaSession(controls: Controls) {
       ? new MediaMetadata({
           title: track.song.title,
           artist: track.song.author,
-          artwork: [{ src: track.song.artworkUrl }]
+          // Not every Source has a picture; an empty entry shows the lock screen
+          // a broken one, where showing nothing shows the app's own icon.
+          artwork: track.song.artworkUrl ? [{ src: track.song.artworkUrl }] : []
         })
       : null;
 

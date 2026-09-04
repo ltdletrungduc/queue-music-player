@@ -145,8 +145,9 @@ the one placed to judge whether the music should stop. See
 Open the site, type the join code and a name. The name is shown against every
 Track you add, and two of you can share one.
 
-- **Add** by pasting a YouTube link into the box. Adding to an empty Queue starts
-  the music on its own — there is nothing to press.
+- **Add** by pasting a link into the box — a YouTube video, or a direct link to
+  an audio file (`.mp3`, `.m4a`, `.ogg`, `.flac` and the like). Adding to an
+  empty Queue starts the music on its own — there is nothing to press.
 - **Reorder** by dragging. Hold a moment first on a touchscreen, so scrolling the
   list does not pick a Track up by accident.
 - **Play next** jumps one Track to the front without disturbing the rest.
@@ -246,9 +247,10 @@ be a Controller, never the speaker.
 ```bash
 pnpm test         # the reducer and the store, no network and no Firebase
 pnpm typecheck
-pnpm --filter @qmp/server test:contract   # talks to the real YouTube
+pnpm --filter @qmp/server test:contract   # talks to the real Sources
 ```
 
-Contract tests are kept out of the default run: they need a network and a
-residential IP, and they fail when YouTube changes rather than when this repo
-does. That is exactly what makes them worth running deliberately.
+Contract tests are kept out of the default run: they need a network and, for
+YouTube, a residential IP, and they fail when somebody else's service changes
+rather than when this repo does. That is exactly what makes them worth running
+deliberately.
