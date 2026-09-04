@@ -379,6 +379,21 @@ describe('driving the Transport from a phone', () => {
     expect(state.transport.volumeBeforeMute).toBe(0.8);
   });
 
+  /**
+   * The doorbell goes while the dial is already at the bottom. There is nothing
+   * to hush, so saying "muted it" would name a change nobody heard — and would
+   * leave a hush that unmuting could not lift, because zero is where it would
+   * come back to.
+   */
+  it('does not claim to have hushed a speaker that was already silent', () => {
+    const silent = reduce(playing(), { type: 'transport/volume', volume: 0, nickname: 'Duc' }, ctx()).state;
+    const { state, effects } = reduce(silent, { type: 'transport/muted', nickname: 'Mai' }, ctx());
+
+    expect(state).toBe(silent);
+    expect(effects).toEqual([]);
+    expect(state.transport.volumeBeforeMute).toBeNull();
+  });
+
   it('ignores unmuting a Room that was never muted', () => {
     const loud = playing();
     const { state, effects } = reduce(loud, { type: 'transport/unmuted', nickname: 'Duc' }, ctx());

@@ -11,6 +11,7 @@
   import { keepAwakeWhile } from '$lib/keep-awake.svelte';
   import { publishToMediaSession } from '$lib/media-session.svelte';
   import { asMinutesAndSeconds } from '$lib/format';
+  import { isMuted } from '@qmp/shared';
   import type { Song } from '@qmp/shared';
 
   const room = createRoom();
@@ -33,9 +34,7 @@
     room.setVolume(next);
   }
 
-  // Asked as "is there a level to come back to" rather than "is this not null",
-  // so a Room that predates the field reads as unmuted rather than as silent.
-  const muted = $derived(typeof room.transport.volumeBeforeMute === 'number');
+  const muted = $derived(isMuted(room.transport));
 
   /**
    * Hushed and turned-all-the-way-down look the same on a dial and are not the
@@ -345,15 +344,18 @@
               >
                 <span class="{volumeIcon} size-7"></span>
               </button>
+              <!-- The same size as everything else along this row. It is reached
+                   for in a hurry and often in the dark, so it is no smaller than
+                   the buttons either side of it, whatever its glyph suggests. -->
               <button
                 type="button"
-                class="grid size-8 place-items-center rounded-full text-muted-foreground transition-colors hover:text-foreground"
+                class="grid size-12 place-items-center rounded-full text-muted-foreground transition-colors hover:text-foreground"
                 onclick={() => (volumeOpen = !volumeOpen)}
                 aria-label="Set the volume"
                 aria-expanded={volumeOpen}
               >
                 <span
-                  class="icon-[ic--round-keyboard-arrow-up] size-5 transition-transform"
+                  class="icon-[ic--round-keyboard-arrow-up] size-6 transition-transform"
                   class:rotate-180={volumeOpen}
                 ></span>
               </button>

@@ -67,6 +67,11 @@ export type Transport = {
    * Silence is a volume of zero like any other, so without this there is no
    * telling a Room somebody hushed for the doorbell from one somebody turned all
    * the way down — and no way to put it back where it was.
+   *
+   * Not written down, for the same reason the volume it shadows is not: how loud
+   * the speaker was set is the evening's, not the Room's. A restart therefore
+   * brings the speaker back at full volume rather than silently muted, which is
+   * the better of the two to come back to.
    */
   volumeBeforeMute: number | null;
   /** How far into Now Playing the audio had reached when last reported. */
@@ -85,6 +90,19 @@ export type Transport = {
    */
   startedAt: number;
 };
+
+/**
+ * Whether the Player is hushed, rather than merely turned down to nothing.
+ *
+ * Asked as "is there a level to come back to" rather than "is this not null",
+ * because the page reads a Transport that arrived over a socket. In production
+ * the server serves the page, so the two always agree; while developing they are
+ * served separately, and a server left running from before this field existed
+ * sends a Transport without it. Read as silence, that shows a Room playing
+ * normally as muted — which is a confusing half hour rather than a crash.
+ */
+export const isMuted = (transport: Transport): boolean =>
+  typeof transport.volumeBeforeMute === 'number';
 
 /** The last thing anyone did to the Transport, so the Room can see who did it. */
 export type RoomAction = {
