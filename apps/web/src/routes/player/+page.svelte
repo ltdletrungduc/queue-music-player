@@ -56,6 +56,25 @@
    * only a mouse can set.
    */
   let volumeOpen = $state(false);
+  /** The control and its dial, so a press outside them can be told from one inside. */
+  let volumeControls = $state<HTMLElement>();
+
+  /**
+   * A press on the speaker.
+   *
+   * A pointer that hovers has already raised the dial by the time it can press,
+   * so the press hushes. A finger cannot rest on anything, so its first tap
+   * raises the dial and the next one hushes — one rule, and no asking the device
+   * what it is.
+   */
+  function pressVolume() {
+    if (!volumeOpen) {
+      volumeOpen = true;
+      return;
+    }
+    if (muted) room.unmute();
+    else room.mute();
+  }
 
   let started = $state(false);
   let problem = $state('');
@@ -173,6 +192,25 @@
     return () => clearInterval(id);
   });
 </script>
+
+<!-- A press away from the dial, or Escape, puts it away. Nothing about a finger
+     ends by itself, so without this the dial raised by a tap would stay up.
+
+     Listened for rather than caught on something drawn across the screen: the
+     dial this replaces was dismissed by a full-screen button, and because that
+     button lay over the transport it took the press with it. A listener sees the
+     press without standing in front of anything. -->
+<svelte:window
+  onpointerdown={(event) => {
+    if (!volumeOpen) return;
+    const target = event.target;
+    if (target instanceof Node && volumeControls?.contains(target)) return;
+    volumeOpen = false;
+  }}
+  onkeydown={(event) => {
+    if (event.key === 'Escape') volumeOpen = false;
+  }}
+/>
 
 {#if !room.admitted}
   <JoinForm
@@ -323,9 +361,16 @@
               here, so nothing can swallow a press.
             -->
             <div
+              bind:this={volumeControls}
               class="absolute right-0 flex flex-col items-center"
-              onpointerenter={() => (volumeOpen = true)}
-              onpointerleave={() => (volumeOpen = false)}
+              onpointerenter={(event) => {
+                if (event.pointerType !== 'touch') volumeOpen = true;
+              }}
+              onpointerleave={(event) => {
+                // A finger cannot rest anywhere: lifting it ends the pointer and
+                // would take the dial down with it, before it could be used.
+                if (event.pointerType !== 'touch') volumeOpen = false;
+              }}
               onfocusin={() => (volumeOpen = true)}
               onfocusout={() => (volumeOpen = false)}
             >
@@ -355,7 +400,7 @@
               <button
                 type="button"
                 class="grid size-12 place-items-center rounded-full text-muted-foreground transition-colors hover:text-foreground"
-                onclick={() => (muted ? room.unmute() : room.mute())}
+                onclick={pressVolume}
                 aria-label={muted ? 'Unmute' : 'Mute'}
                 aria-pressed={muted}
               >
