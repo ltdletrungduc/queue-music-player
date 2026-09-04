@@ -1,5 +1,6 @@
 import { parseWebStream } from 'music-metadata';
-import type { AudioLookup, StreamLookup } from './direct-url.js';
+import { isOnThisNetwork } from './direct-url.js';
+import type { SongLookup, StreamLookup } from './direct-url.js';
 
 /**
  * How much of a file is read to describe it.
@@ -10,6 +11,46 @@ import type { AudioLookup, StreamLookup } from './direct-url.js';
  * somebody pasted should not cost them a download of it.
  */
 const PROBE_BYTES = 512 * 1024;
+
+/** How many redirects a link may take before it is treated as going nowhere. */
+const REDIRECT_LIMIT = 5;
+
+/**
+ * Fetches a URL, refusing at every hop to touch this machine's own network.
+ *
+ * Redirects are followed by hand rather than left to `fetch`, which follows them
+ * without asking. A host that is perfectly public can answer `302` pointing at
+ * the home router or a metadata endpoint, and following that would walk straight
+ * past the check made when the link was pasted — so every hop is checked, not
+ * just the one somebody typed.
+ *
+ * Both the describing read and the playing read go through here, because a Song
+ * saved in a Playlist is fetched again every night it is played, long after the
+ * paste that admitted it.
+ */
+async function fetchOffThisNetwork(url: string, init: RequestInit): Promise<Response> {
+  let target = url;
+
+  for (let hop = 0; hop <= REDIRECT_LIMIT; hop++) {
+    const parsed = new URL(target);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      throw new Error(`That link leads somewhere we cannot fetch (${parsed.protocol})`);
+    }
+    if (isOnThisNetwork(parsed.hostname)) {
+      throw new Error("That link leads inside this machine's own network");
+    }
+
+    const response = await fetch(target, { ...init, redirect: 'manual' });
+
+    const next = response.headers.get('location');
+    if (response.status < 300 || response.status >= 400 || !next) return response;
+
+    await response.body?.cancel().catch(() => {});
+    target = new URL(next, target).toString();
+  }
+
+  throw new Error('That link redirects more times than it should');
+}
 
 /** The whole file's length, which a partial response reports differently. */
 function totalBytes(headers: Headers): number | undefined {
@@ -27,14 +68,14 @@ function totalBytes(headers: Headers): number | undefined {
  * bitrate and the file's whole size, which is why that size is handed over even
  * though only the front of the file is read.
  */
-export const httpAudioLookup: AudioLookup = async (url) => {
+export const httpAudioLookup: SongLookup = async (url) => {
   // The parser stops as soon as it has the headers it needs, well short of what
   // was asked for. Aborting is what closes the connection behind it — cancelling
   // the stream cannot, because the parser still holds the lock on it.
   const reading = new AbortController();
 
   try {
-    const response = await fetch(url, {
+    const response = await fetchOffThisNetwork(url, {
       headers: { range: `bytes=0-${PROBE_BYTES - 1}` },
       signal: reading.signal
     });
@@ -127,7 +168,7 @@ export function endingOnlyWhenComplete(
  * fast as the connection allows.
  */
 export const httpAudioStream: StreamLookup = async (url) => {
-  const response = await fetch(url);
+  const response = await fetchOffThisNetwork(url, {});
   if (!response.ok || !response.body) {
     await response.body?.cancel().catch(() => {});
     throw new Error(`The host refused the audio (${response.status})`);

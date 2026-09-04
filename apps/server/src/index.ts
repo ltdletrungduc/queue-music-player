@@ -8,7 +8,7 @@ import { Server as SocketServer } from 'socket.io';
 import { createRoomRuntime } from './room/room.js';
 import { attachRealtime } from './realtime.js';
 import { openRoomStore } from './persistence/firestore-room-store.js';
-import { createYouTubeProvider, youtubeVideoId } from './sources/youtube.js';
+import { createYouTubeProvider } from './sources/youtube.js';
 import { createDirectUrlProvider } from './sources/direct-url.js';
 import { httpAudioLookup, httpAudioStream } from './sources/http-audio.js';
 import {
@@ -73,15 +73,15 @@ const forgetSources = () => void (youtube = undefined);
  * it cannot be played rather than with the Room claiming never to have heard of
  * YouTube — which is what a missing provider would say, and is both untrue and
  * no help.
+ *
+ * It is the ordinary provider with nothing behind it, rather than a second thing
+ * shaped like one, so the words a Controller reads are written once: a lookup
+ * that cannot answer is exactly what YouTube being unreachable means.
  */
-const youtubeIsUnreachable: SourceProvider = {
-  source: 'youtube',
-  matches: (url) => youtubeVideoId(url) !== null,
-  validate: async () => ({ ok: false, reason: 'Could not reach YouTube. Try again.' }),
-  resolve: async () => {
-    throw new Error('There is no YouTube session to play from');
-  }
+const noSession = async () => {
+  throw new Error('There is no YouTube session to ask');
 };
+const youtubeIsUnreachable = createYouTubeProvider(noSession, noSession);
 
 /**
  * Everything the Room can play.

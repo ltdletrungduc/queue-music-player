@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createDirectUrlProvider, directAudioUrl } from './direct-url.js';
-import type { AudioLookup } from './direct-url.js';
+import type { SongLookup } from './direct-url.js';
 import { youtubeVideoId } from './youtube.js';
 
 describe('recognising a direct audio link', () => {
@@ -58,7 +58,7 @@ const found = {
 };
 
 const lookup =
-  (result: Awaited<ReturnType<AudioLookup>>): AudioLookup =>
+  (result: Awaited<ReturnType<SongLookup>>): SongLookup =>
   async () =>
     result;
 
@@ -66,7 +66,7 @@ const neverStreams = async () => {
   throw new Error('validating should never open a Stream');
 };
 
-const providerWith = (audio: AudioLookup) => createDirectUrlProvider(audio, neverStreams);
+const providerWith = (audio: SongLookup) => createDirectUrlProvider(audio, neverStreams);
 
 describe('validating a direct audio link', () => {
   it('describes the Song behind a good link', async () => {
@@ -173,7 +173,13 @@ describe('validating a direct audio link', () => {
     'http://10.0.0.5/track.mp3',
     'http://172.16.0.1/track.mp3',
     'http://169.254.169.254/track.mp3',
-    'http://printer.local/track.mp3'
+    'http://printer.local/track.mp3',
+    // The same loopback address, spelled the ways a URL may spell it. All but
+    // the last are normalised before the check sees them; that one is not.
+    'http://2130706433/track.mp3',
+    'http://0x7f000001/track.mp3',
+    'http://127.1/track.mp3',
+    'http://[::ffff:127.0.0.1]/track.mp3'
   ])('refuses %s, which points back at this network', async (url) => {
     const provider = providerWith(lookup(found));
     expect(await provider.validate(url)).toEqual({
