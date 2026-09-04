@@ -11,8 +11,7 @@
   import { keepAwakeWhile } from '$lib/keep-awake.svelte';
   import { publishToMediaSession } from '$lib/media-session.svelte';
   import { asMinutesAndSeconds } from '$lib/format';
-  import { isMuted } from '@qmp/shared';
-  import type { Song } from '@qmp/shared';
+  import { isMuted, type Song } from '@qmp/shared';
 
   const room = createRoom();
 
@@ -38,8 +37,8 @@
 
   /**
    * Hushed and turned-all-the-way-down look the same on a dial and are not the
-   * same thing: one comes back to where it was, the other does not. The crossed
-   * speaker is kept for the first so the icon says which of the two this is.
+   * same thing: one comes back to the level it left, the other has none to come
+   * back to. The crossed speaker is kept for the first so the icon says which.
    */
   const volumeIcon = $derived(
     muted
@@ -51,6 +50,13 @@
           : 'icon-[ic--round-volume-up]'
   );
 
+  /**
+   * Whether the dial is showing. It rises under a pointer resting on the volume
+   * control, and for keyboard focus reaching it, so the level is not something
+   * only a mouse can set.
+   */
+  let volumeOpen = $state(false);
+
   let started = $state(false);
   let problem = $state('');
 
@@ -61,18 +67,8 @@
     { id: 'now', label: 'Now playing' },
     { id: 'list', label: 'Playlist' }
   ];
-  let volumeOpen = $state(false);
-  /** The dial and the buttons that open it, so a press outside them can close it. */
-  let volumeControls = $state<HTMLElement>();
 
   const nowPlaying = $derived(room.nowPlaying);
-
-  // The dial is drawn inside the now-playing panel, so a Track ending unmounts
-  // it without closing it. Left alone it springs back open — backdrop and all,
-  // swallowing the first tap — the moment the next Track starts.
-  $effect(() => {
-    if (!nowPlaying) volumeOpen = false;
-  });
 
   const progress = createProgress(() => ({
     positionSeconds: room.transport.positionSeconds,
@@ -177,25 +173,6 @@
     return () => clearInterval(id);
   });
 </script>
-
-<!-- Escape puts the volume dial away, the same as pressing outside it. On the
-     window because the toggle keeps focus when the dial opens.
-
-     Pressing away from the dial closes it by listening rather than by covering
-     the screen with something to press. A backdrop did that once, and because it
-     lay over the transport it took the press with it: whoever reached for Pause
-     while the dial was open only put the dial away, and had to press again. -->
-<svelte:window
-  onkeydown={(event) => {
-    if (event.key === 'Escape') volumeOpen = false;
-  }}
-  onpointerdown={(event) => {
-    if (!volumeOpen) return;
-    const target = event.target;
-    if (target instanceof Node && volumeControls?.contains(target)) return;
-    volumeOpen = false;
-  }}
-/>
 
 {#if !room.admitted}
   <JoinForm
@@ -333,41 +310,34 @@
               <span class="icon-[ic--round-skip-next] size-9"></span>
             </button>
 
-            <!-- Silence in one press, and the dial beside it for a level. -->
-            <div class="absolute right-0 flex items-center gap-1" bind:this={volumeControls}>
-              <button
-                type="button"
-                class="grid size-12 place-items-center rounded-full text-muted-foreground transition-colors hover:text-foreground"
-                onclick={() => (muted ? room.unmute() : room.mute())}
-                aria-label={muted ? 'Unmute' : 'Mute'}
-                aria-pressed={muted}
-              >
-                <span class="{volumeIcon} size-7"></span>
-              </button>
-              <!-- The same size as everything else along this row. It is reached
-                   for in a hurry and often in the dark, so it is no smaller than
-                   the buttons either side of it, whatever its glyph suggests. -->
-              <button
-                type="button"
-                class="grid size-12 place-items-center rounded-full text-muted-foreground transition-colors hover:text-foreground"
-                onclick={() => (volumeOpen = !volumeOpen)}
-                aria-label="Set the volume"
-                aria-expanded={volumeOpen}
-              >
-                <span
-                  class="icon-[ic--round-keyboard-arrow-up] size-6 transition-transform"
-                  class:rotate-180={volumeOpen}
-                ></span>
-              </button>
+            <!--
+              The speaker hushes on a press and comes back on the next; the dial
+              rises above it while a pointer rests there, the way a video player
+              does it.
+
+              Rising on a pointer rather than on a press is what keeps the
+              transport reachable. The dial this replaces was toggled open and
+              dismissed by a button stretched across the whole screen, and that
+              button lay over the transport: reaching for Pause while the dial
+              was open spent the press putting the dial away. Nothing is covered
+              here, so nothing can swallow a press.
+            -->
+            <div
+              class="absolute right-0 flex flex-col items-center"
+              onpointerenter={() => (volumeOpen = true)}
+              onpointerleave={() => (volumeOpen = false)}
+              onfocusin={() => (volumeOpen = true)}
+              onfocusout={() => (volumeOpen = false)}
+            >
               {#if volumeOpen}
                 <div
-                  class="absolute bottom-full right-0 z-30 mb-3 flex flex-col items-center gap-3 rounded-2xl border bg-popover p-4 shadow-xl"
+                  class="absolute bottom-full mb-2 flex flex-col items-center gap-2 rounded-full border bg-popover px-1 py-3 shadow-xl"
                 >
-                  <span class="w-12 text-center text-sm tabular-nums text-muted-foreground"
-                    >{muted ? 'Muted' : `${Math.round(volume * 100)}%`}</span
+                  <span class="text-[0.625rem] tabular-nums text-muted-foreground"
+                    >{muted ? 'off' : Math.round(volume * 100)}</span
                   >
                   <!-- The track stays as thin as it looks; the padding is what
-                       widens the part a finger has to land on. -->
+                       widens the part a finger or a pointer has to land on. -->
                   <Slider
                     type="single"
                     orientation="vertical"
@@ -378,12 +348,23 @@
                     onValueChange={setVolume}
                     onValueCommit={() => (volumeDraft = null)}
                     aria-label="Volume"
-                    class="h-40 px-4"
+                    class="h-32 px-4"
                   />
                 </div>
               {/if}
+              <button
+                type="button"
+                class="grid size-12 place-items-center rounded-full text-muted-foreground transition-colors hover:text-foreground"
+                onclick={() => (muted ? room.unmute() : room.mute())}
+                aria-label={muted ? 'Unmute' : 'Mute'}
+                aria-pressed={muted}
+              >
+                <span class="{volumeIcon} size-7"></span>
+              </button>
             </div>
           </div>
+
+
         {:else}
           <Empty.Root>
             <Empty.Header>
