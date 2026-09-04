@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { endingOnlyWhenComplete } from './http-audio.js';
+import { endingOnlyWhenComplete, httpAudioLookup, httpAudioStream } from './http-audio.js';
 
 const streamOf = (...chunks: number[][]) =>
   new ReadableStream<Uint8Array>({
@@ -39,5 +39,29 @@ describe('reading a Song that may stop short', () => {
   it('accepts a file the host under-promised', async () => {
     const stream = endingOnlyWhenComplete(streamOf([1, 2, 3, 4]), 3);
     expect(await readAll(stream)).toBe(4);
+  });
+});
+
+/**
+ * The paste-time refusal is not enough on its own. A Song saved in a Playlist is
+ * opened again every night it is played, and by then nobody is checking the link
+ * — so the refusal lives with the fetch, where both reads pass through it.
+ *
+ * Neither of these reaches the network: refusing happens before the request.
+ */
+describe('refusing to fetch this machine\'s own network', () => {
+  it.each([
+    'http://127.0.0.1:9/track.mp3',
+    'http://169.254.169.254/track.mp3',
+    'http://192.168.0.1/track.mp3'
+  ])('will not describe %s', async (url) => {
+    await expect(httpAudioLookup(url)).rejects.toThrow("inside this machine's own network");
+  });
+
+  it.each([
+    'http://127.0.0.1:9/track.mp3',
+    'http://169.254.169.254/track.mp3'
+  ])('will not play %s', async (url) => {
+    await expect(httpAudioStream(url)).rejects.toThrow("inside this machine's own network");
   });
 });

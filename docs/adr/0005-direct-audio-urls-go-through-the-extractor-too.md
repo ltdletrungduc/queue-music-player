@@ -18,7 +18,7 @@ verified by hand, in a browser, next to a speaker.
 
 It would also be a second way for a Song to fail. Today a Song that cannot be
 opened is a 502 from this server, which the Player already retries once and then
-marks unplayable (story 31). A direct `src` fails inside the audio element
+marks the Track unplayable. A direct `src` fails inside the audio element
 instead, with the host's CORS policy and the browser's mixed-content rules as
 new ways for it to fail, and none of that reaches the Room's retry as it stands.
 
@@ -56,9 +56,17 @@ control, and Previous restarts a Track rather than seeking inside it — so this
 is a limit to remember rather than a bug to fix. It applies equally to YouTube.
 
 The server fetches whatever address a Controller pasted. That is a capability
-the YouTube Source never had, and it is why the direct provider refuses hosts
-that name a loopback, link-local, or private address before it fetches anything.
-That check reads the address as written and does not resolve names, so a
-hostname pointing at a private address still gets through. Closing that properly
-means resolving the name and pinning the connection to the address that came
-back, which is worth doing if this ever runs anywhere but a laptop at a party.
+the YouTube Source never had, and it is why a loopback, link-local, or private
+address is refused before anything is fetched.
+
+The check is made at every hop of every fetch, not once at the paste. Redirects
+are followed by hand rather than left to `fetch`, because a host that is
+perfectly public can answer `302` pointing at the home router; and the playing
+read is checked as well as the describing one, because a Song saved in a
+Playlist is fetched again every night it is played, long after the paste that
+admitted it.
+
+What still gets through is a name that resolves to a private address: the check
+reads addresses, not DNS. Closing that means resolving the name here and pinning
+the connection to the address that came back, which is worth doing if this ever
+runs anywhere but a laptop at a party.

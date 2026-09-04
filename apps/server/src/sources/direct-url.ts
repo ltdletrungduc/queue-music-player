@@ -53,20 +53,35 @@ export function directAudioUrl(url: string): string | null {
  * could aim that fetch at the home router or a cloud metadata endpoint and read
  * the answer back as a Song title.
  *
- * This reads the address as written; a name that resolves to a private address
- * still gets through. That is a real gap, and closing it means resolving the
+ * Written-out addresses are normalised before this sees them, so the decimal
+ * and hexadecimal spellings of a loopback address (`2130706433`, `0x7f000001`,
+ * `127.1`) all arrive here as `127.0.0.1`. An IPv4 address mapped into IPv6 does
+ * not normalise back, so that whole family is refused: nobody pastes one by
+ * accident.
+ *
+ * This still reads the address as written; a name that resolves to a private
+ * address gets through. That is a real gap, and closing it means resolving the
  * name here and pinning the connection to the address that came back — worth
  * doing if this ever runs anywhere but a laptop at a party.
  */
 const THIS_NETWORK =
-  /^(localhost|.*\.local|0\..*|127\..*|10\..*|192\.168\..*|169\.254\..*|172\.(1[6-9]|2\d|3[01])\..*|\[?::1\]?|\[?f[cd][0-9a-f]{2}:.*)$/i;
+  /^(localhost|.*\.local|0\..*|127\..*|10\..*|192\.168\..*|169\.254\..*|172\.(1[6-9]|2\d|3[01])\..*|\[?::1\]?|\[?::ffff:.*|\[?f[cd][0-9a-f]{2}:.*)$/i;
+
+/**
+ * Whether an address belongs to the network this machine is standing on.
+ *
+ * Asked once when a link is pasted, and again at every hop of every fetch made
+ * for it: a host that was fine when it was checked can still answer with a
+ * redirect pointing somewhere that is not.
+ */
+export const isOnThisNetwork = (hostname: string): boolean => THIS_NETWORK.test(hostname);
 
 /**
  * What reading the head of a file tells us about it, or null when there is no
  * such file. Throwing means the host could not be reached, which is a different
  * answer: one says pick another link, the other says try again.
  */
-export type AudioLookup = (url: string) => Promise<{
+export type SongLookup = (url: string) => Promise<{
   /** What the host says it is serving. */
   contentType: string;
   /** Read from the file's own tags; empty when it carries none. */
@@ -86,7 +101,7 @@ function nameFromUrl(url: URL): string {
 }
 
 export function createDirectUrlProvider(
-  lookup: AudioLookup,
+  lookup: SongLookup,
   openStream: StreamLookup
 ): SourceProvider {
   return {
@@ -98,11 +113,11 @@ export function createDirectUrlProvider(
       if (!audioUrl) return { ok: false, reason: "That doesn't look like a link to an audio file." };
 
       const host = new URL(audioUrl).hostname;
-      if (THIS_NETWORK.test(host)) {
+      if (isOnThisNetwork(host)) {
         return { ok: false, reason: "That link points inside this machine's own network." };
       }
 
-      let found: Awaited<ReturnType<AudioLookup>>;
+      let found: Awaited<ReturnType<SongLookup>>;
       try {
         found = await lookup(audioUrl);
       } catch {
