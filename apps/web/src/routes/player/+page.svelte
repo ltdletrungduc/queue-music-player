@@ -11,7 +11,7 @@
   import { keepAwakeWhile } from '$lib/keep-awake.svelte';
   import { publishToMediaSession } from '$lib/media-session.svelte';
   import { asMinutesAndSeconds } from '$lib/format';
-  import type { Song } from '@qmp/shared';
+  import { isMuted, type Song } from '@qmp/shared';
 
   const room = createRoom();
 
@@ -33,13 +33,48 @@
     room.setVolume(next);
   }
 
+  const muted = $derived(isMuted(room.transport));
+
+  /**
+   * Hushed and turned-all-the-way-down look the same on a dial and are not the
+   * same thing: one comes back to the level it left, the other has none to come
+   * back to. The crossed speaker is kept for the first so the icon says which.
+   */
   const volumeIcon = $derived(
-    volume === 0
+    muted
       ? 'icon-[ic--round-volume-off]'
-      : volume < 0.5
-        ? 'icon-[ic--round-volume-down]'
-        : 'icon-[ic--round-volume-up]'
+      : volume === 0
+        ? 'icon-[ic--round-volume-mute]'
+        : volume < 0.5
+          ? 'icon-[ic--round-volume-down]'
+          : 'icon-[ic--round-volume-up]'
   );
+
+  /**
+   * Whether the dial is showing. It rises under a pointer resting on the volume
+   * control, and for keyboard focus reaching it, so the level is not something
+   * only a mouse can set.
+   */
+  let volumeOpen = $state(false);
+  /** The control and its dial, so a press outside them can be told from one inside. */
+  let volumeControls = $state<HTMLElement>();
+
+  /**
+   * A press on the speaker.
+   *
+   * A pointer that hovers has already raised the dial by the time it can press,
+   * so the press hushes. A finger cannot rest on anything, so its first tap
+   * raises the dial and the next one hushes — one rule, and no asking the device
+   * what it is.
+   */
+  function pressVolume() {
+    if (!volumeOpen) {
+      volumeOpen = true;
+      return;
+    }
+    if (muted) room.unmute();
+    else room.mute();
+  }
 
   let started = $state(false);
   let problem = $state('');
@@ -51,16 +86,8 @@
     { id: 'now', label: 'Now playing' },
     { id: 'list', label: 'Playlist' }
   ];
-  let volumeOpen = $state(false);
 
   const nowPlaying = $derived(room.nowPlaying);
-
-  // The dial is drawn inside the now-playing panel, so a Track ending unmounts
-  // it without closing it. Left alone it springs back open — backdrop and all,
-  // swallowing the first tap — the moment the next Track starts.
-  $effect(() => {
-    if (!nowPlaying) volumeOpen = false;
-  });
 
   const progress = createProgress(() => ({
     positionSeconds: room.transport.positionSeconds,
@@ -166,9 +193,20 @@
   });
 </script>
 
-<!-- Escape puts the volume dial away, the same as tapping outside it. On the
-     window because the toggle keeps focus when the dial opens. -->
+<!-- A press away from the dial, or Escape, puts it away. Nothing about a finger
+     ends by itself, so without this the dial raised by a tap would stay up.
+
+     Listened for rather than caught on something drawn across the screen: the
+     dial this replaces was dismissed by a full-screen button, and because that
+     button lay over the transport it took the press with it. A listener sees the
+     press without standing in front of anything. -->
 <svelte:window
+  onpointerdown={(event) => {
+    if (!volumeOpen) return;
+    const target = event.target;
+    if (target instanceof Node && volumeControls?.contains(target)) return;
+    volumeOpen = false;
+  }}
   onkeydown={(event) => {
     if (event.key === 'Escape') volumeOpen = false;
   }}
@@ -310,32 +348,41 @@
               <span class="icon-[ic--round-skip-next] size-9"></span>
             </button>
 
-            <!-- Volume opens a vertical dial, off to the side of the transport. -->
-            <div class="absolute right-0">
-              <button
-                type="button"
-                class="grid size-12 place-items-center rounded-full text-muted-foreground transition-colors hover:text-foreground"
-                onclick={() => (volumeOpen = !volumeOpen)}
-                aria-label="Volume"
-                aria-expanded={volumeOpen}
-              >
-                <span class="{volumeIcon} size-7"></span>
-              </button>
+            <!--
+              The speaker hushes on a press and comes back on the next; the dial
+              rises above it while a pointer rests there, the way a video player
+              does it.
+
+              Rising on a pointer rather than on a press is what keeps the
+              transport reachable. The dial this replaces was toggled open and
+              dismissed by a button stretched across the whole screen, and that
+              button lay over the transport: reaching for Pause while the dial
+              was open spent the press putting the dial away. Nothing is covered
+              here, so nothing can swallow a press.
+            -->
+            <div
+              bind:this={volumeControls}
+              class="absolute right-0 flex flex-col items-center"
+              onpointerenter={(event) => {
+                if (event.pointerType !== 'touch') volumeOpen = true;
+              }}
+              onpointerleave={(event) => {
+                // A finger cannot rest anywhere: lifting it ends the pointer and
+                // would take the dial down with it, before it could be used.
+                if (event.pointerType !== 'touch') volumeOpen = false;
+              }}
+              onfocusin={() => (volumeOpen = true)}
+              onfocusout={() => (volumeOpen = false)}
+            >
               {#if volumeOpen}
-                <!-- A tap anywhere else puts the dial away. -->
-                <button
-                  type="button"
-                  class="fixed inset-0 z-20 cursor-default"
-                  tabindex="-1"
-                  aria-hidden="true"
-                  onclick={() => (volumeOpen = false)}
-                ></button>
                 <div
-                  class="absolute bottom-full left-1/2 z-30 mb-3 flex -translate-x-1/2 flex-col items-center gap-3 rounded-2xl border bg-popover p-4 shadow-xl"
+                  class="absolute bottom-full mb-2 flex flex-col items-center gap-2 rounded-full border bg-popover px-1 py-3 shadow-xl"
                 >
-                  <span class="w-12 text-center text-sm tabular-nums text-muted-foreground"
-                    >{Math.round(volume * 100)}%</span
+                  <span class="text-[0.625rem] tabular-nums text-muted-foreground"
+                    >{muted ? 'off' : Math.round(volume * 100)}</span
                   >
+                  <!-- The track stays as thin as it looks; the padding is what
+                       widens the part a finger or a pointer has to land on. -->
                   <Slider
                     type="single"
                     orientation="vertical"
@@ -346,13 +393,23 @@
                     onValueChange={setVolume}
                     onValueCommit={() => (volumeDraft = null)}
                     aria-label="Volume"
-                    class="h-40"
+                    class="h-32 px-4"
                   />
-                  <span class="icon-[ic--round-volume-mute] size-5 text-muted-foreground"></span>
                 </div>
               {/if}
+              <button
+                type="button"
+                class="grid size-12 place-items-center rounded-full text-muted-foreground transition-colors hover:text-foreground"
+                onclick={pressVolume}
+                aria-label={muted ? 'Unmute' : 'Mute'}
+                aria-pressed={muted}
+              >
+                <span class="{volumeIcon} size-7"></span>
+              </button>
             </div>
           </div>
+
+
         {:else}
           <Empty.Root>
             <Empty.Header>

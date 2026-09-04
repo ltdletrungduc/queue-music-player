@@ -344,6 +344,84 @@ describe('driving the Transport from a phone', () => {
     expect(state.lastAction).toEqual({ nickname: 'Mai', did: 'volume', volume: 0.4, at: 7 });
   });
 
+  /**
+   * Muting is not the same as turning the dial to nothing, and the difference is
+   * whether the Room can get back to where it was. Someone hushes the speaker
+   * for the doorbell and expects the music to come back as loud as it was, not
+   * at whatever the dial happens to read.
+   */
+  it('hushes the Room and remembers what it was set to', () => {
+    const before = reduce(playing(), { type: 'transport/volume', volume: 0.8, nickname: 'Duc' }, ctx()).state;
+    const { state } = reduce(before, { type: 'transport/muted', nickname: 'Mai' }, ctx(9));
+
+    expect(state.transport.volume).toBe(0);
+    expect(state.transport.volumeBeforeMute).toBe(0.8);
+    expect(state.lastAction).toEqual({ nickname: 'Mai', did: 'muted', at: 9 });
+  });
+
+  it('puts the sound back where it was', () => {
+    const loud = reduce(playing(), { type: 'transport/volume', volume: 0.8, nickname: 'Duc' }, ctx()).state;
+    const hushed = reduce(loud, { type: 'transport/muted', nickname: 'Mai' }, ctx()).state;
+    const { state } = reduce(hushed, { type: 'transport/unmuted', nickname: 'Mai' }, ctx(11));
+
+    expect(state.transport.volume).toBe(0.8);
+    expect(state.transport.volumeBeforeMute).toBeNull();
+    expect(state.lastAction).toEqual({ nickname: 'Mai', did: 'unmuted', at: 11 });
+  });
+
+  it('does not let a second mute forget where the sound came from', () => {
+    const loud = reduce(playing(), { type: 'transport/volume', volume: 0.8, nickname: 'Duc' }, ctx()).state;
+    const hushed = reduce(loud, { type: 'transport/muted', nickname: 'Mai' }, ctx()).state;
+    const { state, effects } = reduce(hushed, { type: 'transport/muted', nickname: 'Duc' }, ctx());
+
+    expect(state).toBe(hushed);
+    expect(effects).toEqual([]);
+    expect(state.transport.volumeBeforeMute).toBe(0.8);
+  });
+
+  /**
+   * The doorbell goes while the dial is already at the bottom. There is nothing
+   * to hush, so saying "muted it" would name a change nobody heard — and would
+   * leave a hush that unmuting could not lift, because zero is where it would
+   * come back to.
+   */
+  it('does not claim to have hushed a speaker that was already silent', () => {
+    const silent = reduce(playing(), { type: 'transport/volume', volume: 0, nickname: 'Duc' }, ctx()).state;
+    const { state, effects } = reduce(silent, { type: 'transport/muted', nickname: 'Mai' }, ctx());
+
+    expect(state).toBe(silent);
+    expect(effects).toEqual([]);
+    expect(state.transport.volumeBeforeMute).toBeNull();
+  });
+
+  it('ignores unmuting a Room that was never muted', () => {
+    const loud = playing();
+    const { state, effects } = reduce(loud, { type: 'transport/unmuted', nickname: 'Duc' }, ctx());
+    expect(state).toBe(loud);
+    expect(effects).toEqual([]);
+  });
+
+  /**
+   * Reaching for the dial says how loud the Room should be more plainly than any
+   * mute does, so it ends one — otherwise the next unmute would undo the level
+   * somebody just chose.
+   */
+  it('ends a mute when someone sets the level by hand', () => {
+    const hushed = reduce(playing(), { type: 'transport/muted', nickname: 'Mai' }, ctx()).state;
+    const { state } = reduce(hushed, { type: 'transport/volume', volume: 0.3, nickname: 'Duc' }, ctx());
+
+    expect(state.transport.volume).toBe(0.3);
+    expect(state.transport.volumeBeforeMute).toBeNull();
+  });
+
+  it('ends a mute even when the level chosen is silence', () => {
+    const hushed = reduce(playing(), { type: 'transport/muted', nickname: 'Mai' }, ctx()).state;
+    const { state } = reduce(hushed, { type: 'transport/volume', volume: 0, nickname: 'Duc' }, ctx());
+
+    expect(state.transport.volume).toBe(0);
+    expect(state.transport.volumeBeforeMute).toBeNull();
+  });
+
   it.each([
     [1.7, 1],
     [-2, 0]
