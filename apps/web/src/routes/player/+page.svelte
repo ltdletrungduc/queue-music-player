@@ -56,8 +56,8 @@
    * only a mouse can set.
    */
   let volumeOpen = $state(false);
-  /** The control and its dial, so a press outside them can be told from one inside. */
-  let volumeControls = $state<HTMLElement>();
+  /** The speaker and its dial, so a press outside them can be told from one inside. */
+  let volumeCorner = $state<HTMLElement>();
 
   /**
    * A press on the speaker.
@@ -67,7 +67,7 @@
    * raises the dial and the next one hushes — one rule, and no asking the device
    * what it is.
    */
-  function pressVolume() {
+  function pressSpeaker() {
     if (!volumeOpen) {
       volumeOpen = true;
       return;
@@ -88,6 +88,14 @@
   ];
 
   const nowPlaying = $derived(room.nowPlaying);
+
+  // The dial is drawn inside the now-playing panel, so a Track ending unmounts it
+  // without closing it: a pointer resting there when the Track runs out gets no
+  // pointerleave. Left alone it is still open when the next Track mounts, and the
+  // dial rises with nothing resting on it.
+  $effect(() => {
+    if (!nowPlaying) volumeOpen = false;
+  });
 
   const progress = createProgress(() => ({
     positionSeconds: room.transport.positionSeconds,
@@ -204,7 +212,7 @@
   onpointerdown={(event) => {
     if (!volumeOpen) return;
     const target = event.target;
-    if (target instanceof Node && volumeControls?.contains(target)) return;
+    if (target instanceof Node && volumeCorner?.contains(target)) return;
     volumeOpen = false;
   }}
   onkeydown={(event) => {
@@ -361,7 +369,8 @@
               here, so nothing can swallow a press.
             -->
             <div
-              bind:this={volumeControls}
+              bind:this={volumeCorner}
+              role="group"
               class="absolute right-0 flex flex-col items-center"
               onpointerenter={(event) => {
                 if (event.pointerType !== 'touch') volumeOpen = true;
@@ -375,32 +384,38 @@
               onfocusout={() => (volumeOpen = false)}
             >
               {#if volumeOpen}
-                <div
-                  class="absolute bottom-full mb-2 flex flex-col items-center gap-2 rounded-full border bg-popover px-1 py-3 shadow-xl"
-                >
-                  <span class="text-[0.625rem] tabular-nums text-muted-foreground"
-                    >{muted ? 'off' : Math.round(volume * 100)}</span
+                <!-- The gap above the speaker is padding rather than margin, so it
+                     belongs to the dial. As a margin it belonged to nothing: a
+                     pointer travelling up to the slider left the group halfway and
+                     took the dial down before it could be reached. -->
+                <div class="absolute bottom-full flex flex-col items-center pb-2">
+                  <div
+                    class="flex flex-col items-center gap-2 rounded-full border bg-popover px-1 py-3 shadow-xl"
                   >
-                  <!-- The track stays as thin as it looks; the padding is what
-                       widens the part a finger or a pointer has to land on. -->
-                  <Slider
-                    type="single"
-                    orientation="vertical"
-                    value={volume}
-                    min={0}
-                    max={1}
-                    step={0.05}
-                    onValueChange={setVolume}
-                    onValueCommit={() => (volumeDraft = null)}
-                    aria-label="Volume"
-                    class="h-32 px-4"
-                  />
+                    <span class="text-[0.625rem] tabular-nums text-muted-foreground"
+                      >{muted ? 'off' : Math.round(volume * 100)}</span
+                    >
+                    <!-- The track stays as thin as it looks; the padding is what
+                         widens the part a finger or a pointer has to land on. -->
+                    <Slider
+                      type="single"
+                      orientation="vertical"
+                      value={volume}
+                      min={0}
+                      max={1}
+                      step={0.05}
+                      onValueChange={setVolume}
+                      onValueCommit={() => (volumeDraft = null)}
+                      aria-label="Volume"
+                      class="h-32 px-4"
+                    />
+                  </div>
                 </div>
               {/if}
               <button
                 type="button"
                 class="grid size-12 place-items-center rounded-full text-muted-foreground transition-colors hover:text-foreground"
-                onclick={pressVolume}
+                onclick={pressSpeaker}
                 aria-label={muted ? 'Unmute' : 'Mute'}
                 aria-pressed={muted}
               >
@@ -408,8 +423,6 @@
               </button>
             </div>
           </div>
-
-
         {:else}
           <Empty.Root>
             <Empty.Header>
