@@ -1,6 +1,6 @@
 import { generateKeyBetween } from 'fractional-indexing';
 export { emptyRoom } from '@qmp/shared';
-import { isMuted } from '@qmp/shared';
+import { atLevel, hushed, isMuted, mutedLevel } from '@qmp/shared';
 import type {
   Command,
   Ctx,
@@ -446,7 +446,7 @@ export function reduce(state: RoomState, command: Command, ctx: Ctx): Reduced {
       const wasMuted = isMuted(state.transport);
       if (volume === state.transport.volume && !wasMuted) return unchanged(state);
       return broadcast(
-        attributed({ ...state, transport: { ...state.transport, volume, volumeBeforeMute: null } }, {
+        attributed({ ...state, transport: atLevel(state.transport, volume) }, {
           nickname: command.nickname,
           did: 'volume',
           volume,
@@ -465,30 +465,23 @@ export function reduce(state: RoomState, command: Command, ctx: Ctx): Reduced {
       // unmuting could not lift.
       if (state.transport.volume === 0) return unchanged(state);
       return broadcast(
-        attributed(
-          {
-            ...state,
-            transport: {
-              ...state.transport,
-              volume: 0,
-              volumeBeforeMute: state.transport.volume
-            }
-          },
-          { nickname: command.nickname, did: 'muted', at: ctx.now }
-        )
+        attributed({ ...state, transport: hushed(state.transport) }, {
+          nickname: command.nickname,
+          did: 'muted',
+          at: ctx.now
+        })
       );
     }
 
     case 'transport/unmuted': {
-      // The question isMuted asks, asked where the answer has to narrow to a
-      // number the Transport can be set back to.
-      const before = state.transport.volumeBeforeMute;
-      if (typeof before !== 'number') return unchanged(state);
+      const before = mutedLevel(state.transport);
+      if (before === null) return unchanged(state);
       return broadcast(
-        attributed(
-          { ...state, transport: { ...state.transport, volume: before, volumeBeforeMute: null } },
-          { nickname: command.nickname, did: 'unmuted', at: ctx.now }
-        )
+        attributed({ ...state, transport: atLevel(state.transport, before) }, {
+          nickname: command.nickname,
+          did: 'unmuted',
+          at: ctx.now
+        })
       );
     }
 

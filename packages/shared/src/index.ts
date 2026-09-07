@@ -92,7 +92,9 @@ export type Transport = {
 };
 
 /**
- * Whether the Player is hushed, rather than merely turned down to nothing.
+ * The level a hushed Player comes back to, or null when it is not hushed — and,
+ * just above the answer, whether it is hushed at all rather than merely turned
+ * down to nothing.
  *
  * Asked as "is there a level to come back to" rather than "is this not null",
  * because the page reads a Transport that arrived over a socket. In production
@@ -101,8 +103,34 @@ export type Transport = {
  * sends a Transport without it. Read as silence, that shows a Room playing
  * normally as muted — which is a confusing half hour rather than a crash.
  */
-export const isMuted = (transport: Transport): boolean =>
-  typeof transport.volumeBeforeMute === 'number';
+export const mutedLevel = (transport: Transport): number | null =>
+  typeof transport.volumeBeforeMute === 'number' ? transport.volumeBeforeMute : null;
+
+export const isMuted = (transport: Transport): boolean => mutedLevel(transport) !== null;
+
+/**
+ * A Transport set to `volume` with nothing left to come back to.
+ *
+ * Setting the level by hand and coming back from a hush both land here: the
+ * level is whatever it now is, and no earlier one is being held.
+ */
+export const atLevel = (transport: Transport, volume: number): Transport => ({
+  ...transport,
+  volume,
+  volumeBeforeMute: null
+});
+
+/**
+ * A Transport hushed to silence, holding the level it was hushed from.
+ *
+ * Kept beside atLevel so that how a hush is written down — silence now, the old
+ * level held aside — is settled in one place rather than in each reducer arm.
+ */
+export const hushed = (transport: Transport): Transport => ({
+  ...transport,
+  volume: 0,
+  volumeBeforeMute: transport.volume
+});
 
 /** The last thing anyone did to the Transport, so the Room can see who did it. */
 export type RoomAction = {

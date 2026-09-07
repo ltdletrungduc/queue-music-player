@@ -263,9 +263,7 @@ export function createRoom() {
     loadPlaylist: (playlistId: string) => socket?.emit('playlist/loaded', playlistId),
     setVolume: (volume: number) => socket?.emit('transport/volume', volume),
     mute: () => socket?.emit('transport/muted'),
-    unmute: () => socket?.emit('transport/unmuted')
-
-    ,
+    unmute: () => socket?.emit('transport/unmuted'),
 
     addTrack: (url: string): Promise<AddResult> =>
       new Promise((resolve) => {
